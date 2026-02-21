@@ -128,6 +128,11 @@ interface AppState {
   updateSessionLabel: (sessionId: string, label: string) => Promise<void>
   spawnSubagentSession: (agentId: string, prompt?: string) => Promise<void>
 
+  // Pinned sessions (local-only)
+  pinnedSessionKeys: string[]
+  togglePinSession: (sessionKey: string) => void
+  isSessionPinned: (sessionKey: string) => boolean
+
   // Agents
   agents: Agent[]
   currentAgentId: string | null
@@ -693,6 +698,15 @@ export const useStore = create<AppState>()(
       // Sessions
       sessions: [],
       currentSessionId: null,
+
+      // Pinned sessions (local-only)
+      pinnedSessionKeys: [],
+      isSessionPinned: (sessionKey) => get().pinnedSessionKeys.includes(sessionKey),
+      togglePinSession: (sessionKey) => set((state) => ({
+        pinnedSessionKeys: state.pinnedSessionKeys.includes(sessionKey)
+          ? state.pinnedSessionKeys.filter(k => k !== sessionKey)
+          : [sessionKey, ...state.pinnedSessionKeys]
+      })),
       setCurrentSession: (sessionId) => {
         const { unreadCounts, client, currentSessionId: prevSessionId, messages: currentMessages, sessions } = get()
         const { [sessionId]: _, ...restCounts } = unreadCounts
@@ -762,6 +776,7 @@ export const useStore = create<AppState>()(
           return {
             sessions: state.sessions.filter((s) => (s.key || s.id) !== sessionId),
             currentSessionId: state.currentSessionId === sessionId ? null : state.currentSessionId,
+            pinnedSessionKeys: state.pinnedSessionKeys.filter(k => k !== sessionId),
             streamingSessions: restStreaming,
             sessionHadChunks: restChunks,
             sessionToolCalls: restToolCalls,
@@ -1884,6 +1899,7 @@ export const useStore = create<AppState>()(
         theme: state.theme,
         serverUrl: state.serverUrl,
         authMode: state.authMode,
+        pinnedSessionKeys: state.pinnedSessionKeys,
         sidebarCollapsed: state.sidebarCollapsed,
         collapsedSessionGroups: state.collapsedSessionGroups,
         thinkingEnabled: state.thinkingEnabled,
