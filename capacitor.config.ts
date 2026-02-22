@@ -6,7 +6,11 @@ const config: CapacitorConfig = {
   webDir: 'dist',
   server: {
     // Allow connections to any WebSocket server
-    allowNavigation: ['*']
+    allowNavigation: ['*'],
+    // Use http:// instead of capacitor:// so WebSocket origin headers
+    // are a standard scheme that servers accept without patching
+    iosScheme: 'http',
+    androidScheme: 'http'
   },
   plugins: {
     SplashScreen: {
