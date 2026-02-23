@@ -2751,6 +2751,7 @@ a {
   display: flex;
   align-items: center;
   gap: var(--space-xs);
+  min-width: 0;
 }
 
 .cron-name-row .detail-title {
@@ -2759,6 +2760,9 @@ a {
   padding: 0 var(--space-xs);
   margin: 0 calc(-1 * var(--space-xs));
   transition: background var(--transition-fast);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .cron-name-row .detail-title:hover {

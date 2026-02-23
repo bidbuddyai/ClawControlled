@@ -332,7 +332,7 @@ export function CronJobDetailView() {
               <path d="M12 6v6l4 2" />
             </svg>
           </div>
-          <div>
+          <div style={{ minWidth: 0 }}>
             <div className="cron-name-row">
               {editingName ? (
                 <input
@@ -345,7 +345,7 @@ export function CronJobDetailView() {
                   disabled={savingName}
                 />
               ) : (
-                <h1 className="detail-title" onClick={handleStartEditName} title="Click to edit name">
+                <h1 className="detail-title" onClick={handleStartEditName} title={selectedCronJob.name}>
                   {selectedCronJob.name}
                 </h1>
               )}
