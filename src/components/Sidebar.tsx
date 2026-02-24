@@ -627,6 +627,9 @@ function RenameModal({ currentTitle, onSave, onClose }: {
                 value={label}
                 onChange={(e) => setLabel(e.target.value)}
                 placeholder="Enter a new label..."
+                autoCorrect="on"
+                autoCapitalize="sentences"
+                spellCheck={true}
               />
             </div>
             <div className="modal-footer">

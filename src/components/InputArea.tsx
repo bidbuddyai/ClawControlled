@@ -680,6 +680,9 @@ export function InputArea() {
           placeholder="Type a message..."
           rows={1}
           aria-label="Message input"
+          autoCorrect="on"
+          autoCapitalize="sentences"
+          spellCheck={true}
         />
         {!hideMediaButtons && (
           <button

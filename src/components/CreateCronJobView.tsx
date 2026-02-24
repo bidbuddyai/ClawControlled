@@ -308,6 +308,9 @@ export function CreateCronJobView() {
                                 value={payloadText}
                                 onChange={(e) => setPayloadText(e.target.value)}
                                 placeholder={payloadKind === 'systemEvent' ? 'System event text...' : 'Message to send...'}
+                                autoCorrect="on"
+                                autoCapitalize="sentences"
+                                spellCheck={true}
                             />
                         </div>
                     </div>
