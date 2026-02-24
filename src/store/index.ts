@@ -39,6 +39,16 @@ interface AgentDetail {
   modelOptions?: string[]
 }
 
+/** Queued message to retry after transient reconnect. */
+interface PendingMessage {
+  content: string
+  attachments: any[]
+  sessionId: string
+  agentId: string | null
+  thinking: boolean
+  queuedAt: number
+}
+
 interface AppState {
   // Theme
   theme: 'dark' | 'light'
@@ -59,6 +69,8 @@ interface AppState {
   client: OpenClawClient | null
   deviceName: string
   setDeviceName: (name: string) => void
+  /** Messages queued during transient disconnects, flushed on reconnect. */
+  pendingMessages: PendingMessage[]
 
   // Device Identity & Pairing
   pairingStatus: 'none' | 'pending'
@@ -270,6 +282,11 @@ function resolveAgentName(sessionKey: string | null | undefined, agents: Agent[]
   return 'Agent'
 }
 
+/** Grace period (ms) before treating a WebSocket drop as a real disconnect. */
+const DISCONNECT_GRACE_MS = 10_000
+/** Timer handle for the disconnect grace period (module-level to survive re-renders). */
+let disconnectGraceTimer: ReturnType<typeof setTimeout> | null = null
+
 export const useStore = create<AppState>()(
   persist(
     (set, get) => ({
@@ -295,6 +312,7 @@ export const useStore = create<AppState>()(
       client: null,
       deviceName: '',
       setDeviceName: (name) => set({ deviceName: name }),
+      pendingMessages: [],
 
       // Device Identity & Pairing
       pairingStatus: 'none',
@@ -1516,6 +1534,12 @@ export const useStore = create<AppState>()(
           })
 
           client.on('connected', (payload: unknown) => {
+            // Cancel any pending disconnect grace timer — we reconnected in time
+            if (disconnectGraceTimer) {
+              clearTimeout(disconnectGraceTimer)
+              disconnectGraceTimer = null
+            }
+
             set({ connected: true, connecting: false, connectionError: null, pairingStatus: 'none', pairingDeviceId: null })
 
             // Extract and store device token from hello-ok response
@@ -1524,6 +1548,16 @@ export const useStore = create<AppState>()(
               const deviceToken = helloOk.auth?.deviceToken
               if (typeof deviceToken === 'string' && deviceToken) {
                 saveDeviceToken(serverHost, deviceToken).catch(() => { })
+              }
+            }
+
+            // Flush any messages queued during transient disconnect
+            const pending = get().pendingMessages
+            if (pending.length > 0) {
+              set({ pendingMessages: [] })
+              for (const pm of pending) {
+                // Re-send each queued message (fire-and-forget; errors show in chat)
+                get().sendMessage(pm.content, pm.attachments).catch(() => { })
               }
             }
           })
@@ -1543,8 +1577,15 @@ export const useStore = create<AppState>()(
           })
 
           client.on('disconnected', () => {
-            set({ connected: false, streamingSessions: {}, sessionHadChunks: {}, sessionToolCalls: {}, streamingThinking: {}, compactingSession: null })
-            get().stopSubagentPolling()
+            // Don't immediately mark as disconnected — use a grace period so
+            // transient mobile drops (1-5s) don't flash the UI or disable input.
+            if (disconnectGraceTimer) clearTimeout(disconnectGraceTimer)
+            disconnectGraceTimer = setTimeout(() => {
+              disconnectGraceTimer = null
+              // Grace period expired — actually mark as disconnected
+              set({ connected: false, streamingSessions: {}, sessionHadChunks: {}, sessionToolCalls: {}, streamingThinking: {}, compactingSession: null })
+              get().stopSubagentPolling()
+            }, DISCONNECT_GRACE_MS)
           })
 
           client.on('certError', (payload: unknown) => {
@@ -1836,7 +1877,25 @@ export const useStore = create<AppState>()(
           // When the client exhausts its reconnect attempts, stop trying.
           // The user can manually reconnect via settings or by refreshing.
           client.on('reconnectExhausted', () => {
-            set({ connecting: false, connected: false })
+            if (disconnectGraceTimer) {
+              clearTimeout(disconnectGraceTimer)
+              disconnectGraceTimer = null
+            }
+            // Discard any queued messages — reconnect failed
+            const pending = get().pendingMessages
+            if (pending.length > 0) {
+              set((state) => ({
+                pendingMessages: [],
+                messages: [...state.messages, {
+                  id: `error-${Date.now()}`,
+                  role: 'system' as const,
+                  content: `Connection lost. ${pending.length} message${pending.length > 1 ? 's were' : ' was'} not delivered.`,
+                  timestamp: new Date().toISOString()
+                }]
+              }))
+            }
+            set({ connecting: false, connected: false, streamingSessions: {}, sessionHadChunks: {}, sessionToolCalls: {}, streamingThinking: {}, compactingSession: null })
+            get().stopSubagentPolling()
           })
 
           // Exec approval notifications: when a tool needs permission, notify the user
@@ -1900,12 +1959,16 @@ export const useStore = create<AppState>()(
       },
 
       disconnect: () => {
+        if (disconnectGraceTimer) {
+          clearTimeout(disconnectGraceTimer)
+          disconnectGraceTimer = null
+        }
         const { client } = get()
         client?.disconnect()
         if ((globalThis as any).__clawdeskClient === client) {
           (globalThis as any).__clawdeskClient = null
         }
-        set({ client: null, connected: false })
+        set({ client: null, connected: false, pendingMessages: [] })
       },
 
       sendMessage: async (content: string, attachments = []) => {
@@ -1966,6 +2029,24 @@ export const useStore = create<AppState>()(
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : 'Unknown error'
           const isAuthOrScope = errMsg.includes('scope') || errMsg.includes('unauthorized') || errMsg.includes('permission')
+
+          // If we're in the disconnect grace period (still showing connected),
+          // queue the message for automatic retry on reconnect instead of showing an error.
+          if (!isAuthOrScope && disconnectGraceTimer && sessionId) {
+            set((state) => ({
+              pendingMessages: [...state.pendingMessages, {
+                content,
+                attachments,
+                sessionId: sessionId!,
+                agentId: currentAgentId,
+                thinking: thinkingEnabled,
+                queuedAt: Date.now()
+              }],
+              streamingSessions: { ...state.streamingSessions, [sessionId]: false },
+              streamingSessionId: null
+            }))
+            return
+          }
 
           if (sessionId) {
             set((state) => ({

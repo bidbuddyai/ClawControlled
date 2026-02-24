@@ -472,7 +472,7 @@ export function InputArea() {
   }, [message])
 
   const handleSubmit = async () => {
-    if ((!message.trim() && attachedImages.length === 0) || !connected) return
+    if (!message.trim() && attachedImages.length === 0) return
 
     const currentMessage = message
     const currentAttachments = attachedImages
@@ -496,7 +496,7 @@ export function InputArea() {
   }
 
   const handleVoiceInput = async () => {
-    if (!voiceSupported || !connected || isStreaming) return
+    if (!voiceSupported || isStreaming) return
 
     if (isListening) {
       await stopDictationRecognition()
@@ -594,7 +594,7 @@ export function InputArea() {
         <button
           className="attach-btn"
           onClick={handleAttachClick}
-          disabled={!connected || isStreaming}
+          disabled={isStreaming}
           aria-label="Attach images"
           title="Attach images"
         >
@@ -607,15 +607,14 @@ export function InputArea() {
           value={message}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
-          placeholder={connected ? "Type a message..." : "Connecting..."}
+          placeholder="Type a message..."
           rows={1}
-          disabled={!connected}
           aria-label="Message input"
         />
         <button
           className={`voice-btn${isListening ? ' listening' : ''}`}
           onClick={handleVoiceInput}
-          disabled={!voiceSupported || !connected || isStreaming}
+          disabled={!voiceSupported || isStreaming}
           aria-label={isListening ? 'Stop voice input' : 'Start voice input'}
           title={isListening ? 'Stop voice input' : 'Voice input'}
         >
@@ -645,7 +644,7 @@ export function InputArea() {
           <button
             className="send-btn"
             onClick={handleSubmit}
-            disabled={(!message.trim() && attachedImages.length === 0) || !connected}
+            disabled={!message.trim() && attachedImages.length === 0}
             aria-label="Send message"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
