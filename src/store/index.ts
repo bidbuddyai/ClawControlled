@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { OpenClawClient, Message, Session, Agent, Skill, CronJob, Hook, HooksConfig, AgentFile, CreateAgentParams, buildIdentityContent } from '../lib/openclaw'
-import type { Node, ExecApprovalsResponse, DevicePairListResponse } from '../lib/openclaw'
+import type { Node, ExecApprovalsResponse, DevicePairListResponse, ExecApprovalDecision } from '../lib/openclaw'
 import type { ClawHubSkill, ClawHubSort } from '../lib/clawhub'
 import { listClawHubSkills, searchClawHub, getClawHubSkill, getClawHubSkillVersion, getClawHubSkillConvex } from '../lib/clawhub'
 import * as Platform from '../lib/platform'
@@ -29,6 +29,17 @@ export interface SubagentInfo {
   status: 'running' | 'completed'
   detectedAt: number
   afterMessageId?: string
+}
+
+export interface ExecApprovalRequest {
+  id: string
+  command?: string
+  args?: string[]
+  cwd?: string
+  agent?: string
+  sessionKey?: string
+  receivedAt: number
+  raw: unknown
 }
 
 interface AgentDetail {
@@ -121,6 +132,8 @@ interface AppState {
   fetchNodes: () => Promise<void>
   execApprovals: ExecApprovalsResponse | null
   fetchExecApprovals: () => Promise<void>
+  pendingExecApprovals: ExecApprovalRequest[]
+  resolveExecApproval: (approvalId: string, decision: ExecApprovalDecision) => Promise<void>
   devicePairings: DevicePairListResponse | null
   fetchDevicePairings: () => Promise<void>
   toggleSkillEnabled: (skillId: string, enabled: boolean) => Promise<void>
@@ -1083,6 +1096,20 @@ export const useStore = create<AppState>()(
           console.warn('[store] Failed to fetch exec approvals:', err)
         }
       },
+      pendingExecApprovals: [],
+      resolveExecApproval: async (approvalId: string, decision: ExecApprovalDecision) => {
+        const { client } = get()
+        if (!client) return
+        try {
+          await client.resolveExecApproval(approvalId, decision)
+        } catch (err) {
+          console.warn('[store] Failed to resolve exec approval:', err)
+        }
+        // Remove from pending regardless — avoid stale banners
+        set((state) => ({
+          pendingExecApprovals: state.pendingExecApprovals.filter((a) => a.id !== approvalId)
+        }))
+      },
       devicePairings: null,
       fetchDevicePairings: async () => {
         const { client } = get()
@@ -1894,14 +1921,29 @@ export const useStore = create<AppState>()(
                 }]
               }))
             }
-            set({ connecting: false, connected: false, streamingSessions: {}, sessionHadChunks: {}, sessionToolCalls: {}, streamingThinking: {}, compactingSession: null })
+            set({ connecting: false, connected: false, streamingSessions: {}, sessionHadChunks: {}, sessionToolCalls: {}, streamingThinking: {}, compactingSession: null, pendingExecApprovals: [] })
             get().stopSubagentPolling()
           })
 
           // Exec approval notifications: when a tool needs permission, notify the user
           client.on('execApprovalRequested', (payload: unknown) => {
+            console.log('[exec-approval] Raw payload:', JSON.stringify(payload))
             const data = (payload as any)?.data || payload
+            const approvalId = data?.id || data?.approvalId || data?.requestId || `approval-${Date.now()}`
             const command = data?.command || data?.tool || 'Unknown command'
+            const approval: ExecApprovalRequest = {
+              id: approvalId,
+              command: typeof command === 'string' ? command : String(command),
+              args: Array.isArray(data?.args) ? data.args : undefined,
+              cwd: typeof data?.cwd === 'string' ? data.cwd : undefined,
+              agent: typeof data?.agent === 'string' ? data.agent : undefined,
+              sessionKey: typeof data?.sessionKey === 'string' ? data.sessionKey : undefined,
+              receivedAt: Date.now(),
+              raw: payload
+            }
+            set((state) => ({
+              pendingExecApprovals: [...state.pendingExecApprovals, approval]
+            }))
             Platform.showNotification('Exec Approval Required', String(command)).catch(() => { })
           })
 

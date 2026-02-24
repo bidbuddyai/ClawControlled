@@ -1,5 +1,6 @@
-import { useRef, useEffect, useMemo, useState, Fragment, memo } from 'react'
+import { useRef, useEffect, useMemo, useState, useCallback, Fragment, memo } from 'react'
 import { useStore, selectIsStreaming, selectHadStreamChunks, selectActiveToolCalls, selectStreamingThinking, selectIsCompacting, ToolCall, SubagentInfo } from '../store'
+import type { ExecApprovalDecision } from '../lib/openclaw'
 import { Message, stripAnsi } from '../lib/openclaw'
 import { resolveToolDisplay, extractToolDetail } from '../lib/openclaw/tool-display'
 import { openExternal } from '../lib/platform'
@@ -14,7 +15,7 @@ import logoUrl from '../../build/icon.png'
 marked.setOptions({ breaks: true, gfm: true, async: false })
 
 export function ChatArea() {
-  const { messages: allMessages, agents, currentAgentId, sessions, currentSessionId, activeSubagents, openSubagentPopout, openToolCallPopout, setDraftMessage } = useStore()
+  const { messages: allMessages, agents, currentAgentId, sessions, currentSessionId, activeSubagents, openSubagentPopout, openToolCallPopout, setDraftMessage, pendingExecApprovals, resolveExecApproval } = useStore()
   const isStreaming = useStore(selectIsStreaming)
   const hadStreamChunks = useStore(selectHadStreamChunks)
   const activeToolCalls = useStore(selectActiveToolCalls)
@@ -190,7 +191,81 @@ export function ChatArea() {
           </div>
         )}
 
+        {pendingExecApprovals.length > 0 && (
+          <div className="exec-approval-stack">
+            {pendingExecApprovals.map((approval) => (
+              <ExecApprovalBanner
+                key={approval.id}
+                approval={approval}
+                onResolve={resolveExecApproval}
+              />
+            ))}
+          </div>
+        )}
+
         <div ref={chatEndRef} />
+      </div>
+    </div>
+  )
+}
+
+function ExecApprovalBanner({
+  approval,
+  onResolve
+}: {
+  approval: { id: string; command?: string; args?: string[]; cwd?: string; agent?: string }
+  onResolve: (approvalId: string, decision: ExecApprovalDecision) => Promise<void>
+}) {
+  const [resolving, setResolving] = useState<ExecApprovalDecision | null>(null)
+
+  const handle = useCallback(async (decision: ExecApprovalDecision) => {
+    setResolving(decision)
+    await onResolve(approval.id, decision)
+  }, [approval.id, onResolve])
+
+  const displayCommand = approval.args?.length
+    ? `${approval.command} ${approval.args.join(' ')}`
+    : approval.command || 'Unknown command'
+
+  return (
+    <div className="exec-approval-banner">
+      <div className="exec-approval-header">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+          <line x1="12" y1="9" x2="12" y2="13" />
+          <line x1="12" y1="17" x2="12.01" y2="17" />
+        </svg>
+        <span>Exec Approval Required</span>
+        {approval.agent && <span className="exec-approval-agent">{approval.agent}</span>}
+      </div>
+      <div className="exec-approval-command">
+        <code>{displayCommand}</code>
+      </div>
+      {approval.cwd && (
+        <div className="exec-approval-cwd">in {approval.cwd}</div>
+      )}
+      <div className="exec-approval-actions">
+        <button
+          className="exec-approval-btn exec-approval-btn--allow"
+          onClick={() => handle('allow')}
+          disabled={resolving !== null}
+        >
+          {resolving === 'allow' ? 'Allowing...' : 'Allow'}
+        </button>
+        <button
+          className="exec-approval-btn exec-approval-btn--always"
+          onClick={() => handle('allow-always')}
+          disabled={resolving !== null}
+        >
+          {resolving === 'allow-always' ? 'Adding...' : 'Always Allow'}
+        </button>
+        <button
+          className="exec-approval-btn exec-approval-btn--deny"
+          onClick={() => handle('deny')}
+          disabled={resolving !== null}
+        >
+          {resolving === 'deny' ? 'Denying...' : 'Deny'}
+        </button>
       </div>
     </div>
   )

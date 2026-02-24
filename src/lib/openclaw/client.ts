@@ -1074,4 +1074,5 @@ export class OpenClawClient {
   async removeDevice(deviceId: string): Promise<void> { return nodesApi.removeDevice(this.call.bind(this), deviceId) }
   async rotateDeviceToken(deviceId: string, role: string, scopes?: string[]): Promise<void> { return nodesApi.rotateDeviceToken(this.call.bind(this), deviceId, role, scopes) }
   async revokeDeviceToken(deviceId: string, role: string): Promise<void> { return nodesApi.revokeDeviceToken(this.call.bind(this), deviceId, role) }
+  async resolveExecApproval(approvalId: string, decision: nodesApi.ExecApprovalDecision): Promise<void> { return nodesApi.resolveExecApproval(this.call.bind(this), approvalId, decision) }
 }

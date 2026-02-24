@@ -65,6 +65,18 @@ export async function getNodeExecApprovals(call: RpcCaller, nodeId: string): Pro
   }
 }
 
+// --- Exec Approval Resolution ---
+
+export type ExecApprovalDecision = 'allow' | 'allow-always' | 'deny'
+
+export async function resolveExecApproval(
+  call: RpcCaller,
+  approvalId: string,
+  decision: ExecApprovalDecision
+): Promise<void> {
+  await call('exec.approval.resolve', { id: approvalId, decision })
+}
+
 // --- Device Pairing ---
 
 export interface DeviceTokenSummary {

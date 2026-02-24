@@ -1671,6 +1671,124 @@ a {
   color: var(--accent-cyan);
 }
 
+/* Exec Approval Banners */
+.exec-approval-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.exec-approval-banner {
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: rgba(245, 158, 11, 0.08);
+  animation: exec-approval-slide-in 200ms ease-out;
+}
+
+@keyframes exec-approval-slide-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.exec-approval-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: rgb(245, 158, 11);
+  margin-bottom: 6px;
+}
+
+.exec-approval-header svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  stroke: rgb(245, 158, 11);
+}
+
+.exec-approval-agent {
+  margin-left: auto;
+  font-size: 0.7rem;
+  font-weight: 400;
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.exec-approval-command {
+  margin-bottom: 4px;
+}
+
+.exec-approval-command code {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.exec-approval-cwd {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  margin-bottom: 4px;
+}
+
+.exec-approval-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.exec-approval-btn {
+  flex: 1;
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: opacity 120ms ease;
+}
+
+.exec-approval-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.exec-approval-btn--allow {
+  background: rgba(34, 197, 94, 0.15);
+  color: rgb(34, 197, 94);
+  border-color: rgba(34, 197, 94, 0.3);
+}
+
+.exec-approval-btn--allow:hover:not(:disabled) {
+  background: rgba(34, 197, 94, 0.25);
+}
+
+.exec-approval-btn--always {
+  background: rgba(59, 130, 246, 0.15);
+  color: rgb(59, 130, 246);
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+.exec-approval-btn--always:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.25);
+}
+
+.exec-approval-btn--deny {
+  background: rgba(239, 68, 68, 0.15);
+  color: rgb(239, 68, 68);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.exec-approval-btn--deny:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.25);
+}
+
 /* Tool Call Cards */
 .chat-tool-card {
   border: 1px solid var(--border-subtle);
