@@ -768,6 +768,20 @@ a {
   flex-shrink: 0;
 }
 
+.session-main-badge {
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-radius: 3px;
+  padding: 0px 4px;
+  line-height: 1.5;
+  flex-shrink: 0;
+  text-transform: uppercase;
+}
+
 /* Session ID line (parsed from agent:name:uuid keys) */
 .session-session-id {
   font-family: var(--font-mono);

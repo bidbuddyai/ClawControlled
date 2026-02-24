@@ -501,7 +501,8 @@ function SessionItem({
       keyParts[1].charAt(0).toUpperCase() + keyParts[1].slice(1)
     )
     : null
-  const parsedSessionId = keyParts && !hasCustomTitle
+  const isMainSession = keyParts ? keyParts[2] === 'main' : false
+  const parsedSessionId = keyParts && !hasCustomTitle && !isMainSession
     ? keyParts[2]
     : null
 
@@ -539,6 +540,9 @@ function SessionItem({
           <div className="session-title">
             {resolvedAgentName || session.title}
           </div>
+          {isMainSession && (
+            <span className="session-main-badge">MAIN</span>
+          )}
         </div>
         {parsedSessionId ? (
           <div className="session-session-id">{parsedSessionId}</div>
