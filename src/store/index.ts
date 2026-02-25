@@ -2150,7 +2150,8 @@ export const useStore = create<AppState>()(
           const nonSpawnedSessions = uniqueServerSessions.filter(s => {
             const key = s.key || s.id
             if (key === state.currentSessionId) return true
-            if (SYSTEM_SESSION_RE.test(key)) return false
+            // Hide cron and subagent sessions, but keep agent:X:main (primary agent chats)
+            if (/^agent:[^:]+:cron(:|$)/.test(key)) return false
             if (key.includes(':subagent:')) return false
             return !s.spawned && !s.parentSessionId && !s.cron
           })

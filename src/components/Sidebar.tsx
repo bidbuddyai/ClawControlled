@@ -68,7 +68,7 @@ export function Sidebar() {
 
   // Filter out spawned subagent sessions, system sessions, and deduplicate by key.
   const visibleSessions = useMemo(() => {
-    const systemSessionRe = /^agent:[^:]+:(main|cron)(:|$)/
+    const systemSessionRe = /^agent:[^:]+:cron(:|$)/
     const seen = new Set<string>()
     return sessions.filter(s => {
       const key = s.key || s.id
@@ -76,7 +76,7 @@ export function Sidebar() {
       seen.add(key)
       // Always keep the currently active session visible
       if (key === currentSessionId) return true
-      // Hide internal system sessions (agent:X:main, agent:X:cron, agent:X:cron:*)
+      // Hide internal system sessions (agent:X:cron, agent:X:cron:*)
       if (systemSessionRe.test(key)) return false
       // Hide subagent sessions (agent:X:subagent:*)
       if (key.includes(':subagent:')) return false
@@ -558,7 +558,7 @@ function SessionItem({
       {unreadCount > 0 && (
         <span className="session-badge">{unreadCount}</span>
       )}
-      {!/^agent:[^:]+:(main|cron)(:|$)/.test(sessionKey) && (
+      {!/^agent:[^:]+:cron(:|$)/.test(sessionKey) && (
         <>
           <button
             className={`session-pin ${isPinned ? 'pinned' : ''}`}
