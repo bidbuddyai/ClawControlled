@@ -22,22 +22,29 @@ export class NativeWebSocketWeb extends WebPlugin implements NativeWebSocketPlug
 
     const ws = new WebSocket(options.url)
     this.ws = ws
+    const cid = options.connectionId
 
     ws.onopen = () => {
-      this.notifyListeners('open', {})
+      this.notifyListeners('open', cid ? { connectionId: cid } : {})
     }
 
     ws.onmessage = (event) => {
-      this.notifyListeners('message', { data: event.data })
+      const data: Record<string, any> = { data: event.data }
+      if (cid) data.connectionId = cid
+      this.notifyListeners('message', data)
     }
 
     ws.onclose = (event) => {
-      this.notifyListeners('close', { code: event.code, reason: event.reason })
+      const data: Record<string, any> = { code: event.code, reason: event.reason }
+      if (cid) data.connectionId = cid
+      this.notifyListeners('close', data)
       this.ws = null
     }
 
     ws.onerror = () => {
-      this.notifyListeners('error', { message: 'WebSocket error' })
+      const data: Record<string, any> = { message: 'WebSocket error' }
+      if (cid) data.connectionId = cid
+      this.notifyListeners('error', data)
     }
   }
 

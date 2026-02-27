@@ -1,4 +1,4 @@
-import { useRef, useCallback, type ReactNode } from 'react'
+import { useRef, useCallback, useEffect, type ReactNode } from 'react'
 import { useStore } from '../store'
 import { useSwipeGesture, type SwipeDirection } from '../hooks/useSwipeGesture'
 
@@ -288,6 +288,13 @@ export function MobileGestureLayer({ children }: Props) {
     onSwipeMove,
     onSwipeEnd,
   })
+
+  // Clean up any pending RAF and transient styles on unmount
+  useEffect(() => {
+    return () => {
+      cleanupSwipeVisuals()
+    }
+  }, [cleanupSwipeVisuals])
 
   return <>{children}</>
 }

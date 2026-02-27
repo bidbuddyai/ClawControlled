@@ -14,6 +14,7 @@ public class NativeWebSocketPlugin: CAPPlugin, CAPBridgedPlugin {
     ]
 
     private var manager: WebSocketManager?
+    private var activeConnectionId: String?
 
     @objc func connect(_ call: CAPPluginCall) {
         guard let urlString = call.getString("url"),
@@ -32,31 +33,43 @@ public class NativeWebSocketPlugin: CAPPlugin, CAPBridgedPlugin {
             storeKey: tls["storeKey"] as? String
         )
 
+        let connectionId = call.getString("connectionId")
+
         // Disconnect existing connection
         manager?.disconnect()
 
         let mgr = WebSocketManager(tlsOptions: tlsOpts)
+        self.activeConnectionId = connectionId
 
         mgr.onOpen = { [weak self] in
-            self?.notifyListeners("open", data: [:])
+            var data: [String: Any] = [:]
+            if let cid = connectionId { data["connectionId"] = cid }
+            self?.notifyListeners("open", data: data)
         }
 
         mgr.onMessage = { [weak self] text in
-            self?.notifyListeners("message", data: ["data": text])
+            var data: [String: Any] = ["data": text]
+            if let cid = connectionId { data["connectionId"] = cid }
+            self?.notifyListeners("message", data: data)
         }
 
         mgr.onClose = { [weak self] code, reason in
             var data: [String: Any] = ["code": code]
             if let reason { data["reason"] = reason }
+            if let cid = connectionId { data["connectionId"] = cid }
             self?.notifyListeners("close", data: data)
         }
 
         mgr.onError = { [weak self] message in
-            self?.notifyListeners("error", data: ["message": message])
+            var data: [String: Any] = ["message": message]
+            if let cid = connectionId { data["connectionId"] = cid }
+            self?.notifyListeners("error", data: data)
         }
 
         mgr.onTLSFingerprint = { [weak self] fingerprint in
-            self?.notifyListeners("tlsFingerprint", data: ["fingerprint": fingerprint])
+            var data: [String: Any] = ["fingerprint": fingerprint]
+            if let cid = connectionId { data["connectionId"] = cid }
+            self?.notifyListeners("tlsFingerprint", data: data)
         }
 
         self.manager = mgr

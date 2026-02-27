@@ -16,6 +16,8 @@ export interface ConnectOptions {
   tls?: TLSOptions
   /** Origin header to send with the WebSocket upgrade request. */
   origin?: string
+  /** Unique connection ID. Included in all emitted events so listeners can filter by connection. */
+  connectionId?: string
 }
 
 export interface SendOptions {

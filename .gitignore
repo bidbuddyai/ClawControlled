@@ -47,6 +47,9 @@ plugins/*/.build/
 plugins/*/.swiftpm/
 plugins/*/Package.resolved
 !plugins/*/ios/
+!plugins/*/android/
+plugins/*/android/build/
+plugins/*/android/.gradle/
 /openclaw/
 /skills
 upload-keyfile

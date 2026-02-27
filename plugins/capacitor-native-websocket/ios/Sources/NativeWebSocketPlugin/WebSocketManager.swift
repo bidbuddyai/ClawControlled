@@ -12,6 +12,8 @@ final class WebSocketManager: NSObject, URLSessionDelegate, URLSessionWebSocketD
     private var session: URLSession?
     private var task: URLSessionWebSocketTask?
     private let tlsOptions: TLSOptions
+    /// Generation counter to ignore callbacks from stale connections after disconnect/reconnect.
+    private var connectionGeneration: Int = 0
 
     var onOpen: (() -> Void)?
     var onMessage: ((String) -> Void)?
@@ -25,6 +27,8 @@ final class WebSocketManager: NSObject, URLSessionDelegate, URLSessionWebSocketD
     }
 
     func connect(url: URL, origin: String? = nil) {
+        connectionGeneration += 1
+
         let config = URLSessionConfiguration.default
         config.waitsForConnectivity = false
         config.timeoutIntervalForResource = 15
@@ -51,6 +55,7 @@ final class WebSocketManager: NSObject, URLSessionDelegate, URLSessionWebSocketD
     }
 
     func disconnect() {
+        connectionGeneration += 1 // Invalidate any pending callbacks
         task?.cancel(with: .normalClosure, reason: nil)
         task = nil
         session?.invalidateAndCancel()
@@ -60,8 +65,9 @@ final class WebSocketManager: NSObject, URLSessionDelegate, URLSessionWebSocketD
     // MARK: - Receive loop
 
     private func receiveNext() {
+        let gen = connectionGeneration
         task?.receive { [weak self] result in
-            guard let self else { return }
+            guard let self, gen == self.connectionGeneration else { return }
             switch result {
             case .success(let message):
                 switch message {
@@ -77,6 +83,8 @@ final class WebSocketManager: NSObject, URLSessionDelegate, URLSessionWebSocketD
                 self.receiveNext()
             case .failure(let error):
                 self.onError?(error.localizedDescription)
+                // Receive failure is terminal — emit close so JS state stays consistent
+                self.onClose?(1006, error.localizedDescription)
             }
         }
     }
@@ -88,6 +96,7 @@ final class WebSocketManager: NSObject, URLSessionDelegate, URLSessionWebSocketD
         webSocketTask: URLSessionWebSocketTask,
         didOpenWithProtocol protocol: String?
     ) {
+        guard webSocketTask === task else { return } // Ignore stale task callbacks
         onOpen?()
         receiveNext()
     }
@@ -98,6 +107,7 @@ final class WebSocketManager: NSObject, URLSessionDelegate, URLSessionWebSocketD
         didCloseWith closeCode: URLSessionWebSocketTask.CloseCode,
         reason: Data?
     ) {
+        guard webSocketTask === task else { return } // Ignore stale task callbacks
         let reasonText = reason.flatMap { String(data: $0, encoding: .utf8) }
         onClose?(closeCode.rawValue, reasonText)
     }
@@ -109,6 +119,7 @@ final class WebSocketManager: NSObject, URLSessionDelegate, URLSessionWebSocketD
         task: URLSessionTask,
         didCompleteWithError error: Error?
     ) {
+        guard task === self.task else { return } // Ignore stale task callbacks
         guard let error else { return }
         let nsError = error as NSError
         let message: String
@@ -157,9 +168,20 @@ final class WebSocketManager: NSObject, URLSessionDelegate, URLSessionWebSocketD
                 return
             }
 
-            // TOFU: store and accept
+            // TOFU: check stored fingerprint first, only save on first use
             if tlsOptions.allowTOFU {
                 if let storeKey = tlsOptions.storeKey {
+                    if let stored = TLSCertificateStore.loadFingerprint(storeKey: storeKey) {
+                        // Verify against stored fingerprint
+                        if fingerprint == stored {
+                            completionHandler(.useCredential, URLCredential(trust: trust))
+                        } else {
+                            onError?("TLS_CERTIFICATE_ERROR: Certificate fingerprint changed: expected \(stored), got \(fingerprint)")
+                            completionHandler(.cancelAuthenticationChallenge, nil)
+                        }
+                        return
+                    }
+                    // First use: store and accept
                     TLSCertificateStore.saveFingerprint(fingerprint, storeKey: storeKey)
                 }
                 completionHandler(.useCredential, URLCredential(trust: trust))

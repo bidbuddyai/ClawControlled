@@ -1,4 +1,4 @@
-import { useRef, useCallback } from 'react'
+import { useRef, useCallback, useEffect } from 'react'
 import { isNativeMobile, triggerHaptic } from '../lib/platform'
 
 const LONG_PRESS_DURATION = 500 // ms
@@ -51,6 +51,16 @@ export function useLongPress(
   const onTouchEnd = useCallback(() => {
     cancel()
   }, [cancel])
+
+  // Clear any pending timer on unmount to prevent firing on stale component
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current)
+        timerRef.current = null
+      }
+    }
+  }, [])
 
   return {
     onTouchStart,
