@@ -12,6 +12,43 @@ import type { DeviceIdentity } from '../lib/device-identity'
 /** Matches internal system sessions: agent:X:main, agent:X:cron, agent:X:cron:*, agent:X:subagent:* */
 const SYSTEM_SESSION_RE = /^agent:[^:]+:(main|cron)(:|$)/
 
+export interface ServerProfile {
+  id: string
+  name: string
+  serverUrl: string
+  authMode: 'token' | 'password'
+  deviceName: string
+}
+
+interface PerProfileState {
+  pinnedSessionKeys: string[]
+  collapsedSessionGroups: string[]
+}
+
+function profileStorageKey(profileId: string): string {
+  return `clawcontrol-profile-${profileId}`
+}
+
+function loadProfileState(profileId: string): PerProfileState {
+  try {
+    const raw = localStorage.getItem(profileStorageKey(profileId))
+    if (raw) return JSON.parse(raw)
+  } catch { /* ignore */ }
+  return { pinnedSessionKeys: [], collapsedSessionGroups: [] }
+}
+
+function saveProfileState(profileId: string, state: PerProfileState): void {
+  try {
+    localStorage.setItem(profileStorageKey(profileId), JSON.stringify(state))
+  } catch { /* storage full */ }
+}
+
+function deleteProfileState(profileId: string): void {
+  try {
+    localStorage.removeItem(profileStorageKey(profileId))
+  } catch { /* ignore */ }
+}
+
 export interface ToolCall {
   toolCallId: string
   name: string
@@ -65,6 +102,15 @@ interface AppState {
   theme: 'dark' | 'light'
   setTheme: (theme: 'dark' | 'light') => void
   toggleTheme: () => void
+
+  // Server Profiles
+  serverProfiles: ServerProfile[]
+  activeProfileId: string | null
+  addServerProfile: (profile: Omit<ServerProfile, 'id'>) => string
+  updateServerProfile: (id: string, updates: Partial<Omit<ServerProfile, 'id'>>) => void
+  deleteServerProfile: (id: string) => void
+  switchProfile: (profileId: string) => Promise<void>
+  getActiveProfile: () => ServerProfile | null
 
   // Connection
   serverUrl: string
@@ -302,6 +348,32 @@ const DISCONNECT_GRACE_MS = 10_000
 /** Timer handle for the disconnect grace period (module-level to survive re-renders). */
 let disconnectGraceTimer: ReturnType<typeof setTimeout> | null = null
 
+/**
+ * Response watchdog: detects when a message was sent but no streaming events
+ * arrive, indicating a stale connection. Force-reconnects and retries.
+ */
+const RESPONSE_WATCHDOG_MS = 20_000
+let responseWatchdogTimer: ReturnType<typeof setTimeout> | null = null
+/** The message content that is pending a streaming response. */
+let responseWatchdogPayload: {
+  content: string
+  attachments: Array<{ type?: string; mimeType?: string; fileName?: string; content: string; previewUrl?: string }>
+  sessionId: string
+} | null = null
+/** Prevents infinite retry loops — only retry once per send. */
+let responseWatchdogRetried = false
+
+function clearResponseWatchdog(): void {
+  if (responseWatchdogTimer) {
+    clearTimeout(responseWatchdogTimer)
+    responseWatchdogTimer = null
+  }
+  responseWatchdogPayload = null
+  // Note: responseWatchdogRetried is intentionally NOT reset here —
+  // it's reset only when a new (non-retry) send starts.
+}
+
+
 export const useStore = create<AppState>()(
   persist(
     (set, get) => ({
@@ -310,14 +382,126 @@ export const useStore = create<AppState>()(
       setTheme: (theme) => set({ theme }),
       toggleTheme: () => set((state) => ({ theme: state.theme === 'dark' ? 'light' : 'dark' })),
 
+      // Server Profiles
+      serverProfiles: [],
+      activeProfileId: null,
+      addServerProfile: (profileData) => {
+        const id = crypto.randomUUID()
+        const profile: ServerProfile = { id, ...profileData }
+        set((state) => ({
+          serverProfiles: [...state.serverProfiles, profile]
+        }))
+        return id
+      },
+      updateServerProfile: (id, updates) => {
+        set((state) => ({
+          serverProfiles: state.serverProfiles.map(p =>
+            p.id === id ? { ...p, ...updates } : p
+          )
+        }))
+      },
+      deleteServerProfile: (id) => {
+        const { activeProfileId } = get()
+        deleteProfileState(id)
+        Platform.clearProfileToken(id).catch(() => { })
+        set((state) => ({
+          serverProfiles: state.serverProfiles.filter(p => p.id !== id),
+          activeProfileId: activeProfileId === id ? null : activeProfileId
+        }))
+        if (activeProfileId === id) {
+          get().disconnect()
+          set({ serverUrl: '', gatewayToken: '', authMode: 'token', deviceName: '' })
+        }
+      },
+      switchProfile: async (profileId: string) => {
+        const { activeProfileId, client, serverProfiles } = get()
+        const profile = serverProfiles.find(p => p.id === profileId)
+        if (!profile) return
+
+        // Save current profile's per-profile state
+        if (activeProfileId) {
+          const { pinnedSessionKeys, collapsedSessionGroups } = get()
+          saveProfileState(activeProfileId, { pinnedSessionKeys, collapsedSessionGroups })
+        }
+
+        // Disconnect existing connection
+        if (client) {
+          client.disconnect()
+          if ((globalThis as any).__clawdeskClient === client) {
+            (globalThis as any).__clawdeskClient = null
+          }
+        }
+
+        // Clear in-memory caches
+        _sessionMessagesCache.clear()
+        _sessionLoadVersion++
+
+        // Load new profile's per-profile state
+        const profileState = loadProfileState(profileId)
+
+        // Load token from secure storage
+        const token = await Platform.getProfileToken(profileId)
+
+        // Set all state at once
+        set({
+          activeProfileId: profileId,
+          serverUrl: profile.serverUrl,
+          authMode: profile.authMode,
+          deviceName: profile.deviceName,
+          gatewayToken: token || '',
+          client: null,
+          connected: false,
+          connecting: false,
+          connectionError: null,
+          sessions: [],
+          messages: [],
+          currentSessionId: null,
+          agents: [],
+          currentAgentId: null,
+          skills: [],
+          cronJobs: [],
+          hooks: [],
+          hooksConfig: { enabled: false },
+          activeSubagents: [],
+          streamingSessions: {},
+          sessionHadChunks: {},
+          sessionToolCalls: {},
+          streamingThinking: {},
+          pendingMessages: [],
+          pinnedSessionKeys: profileState.pinnedSessionKeys,
+          collapsedSessionGroups: profileState.collapsedSessionGroups,
+          mainView: 'chat',
+        })
+      },
+      getActiveProfile: () => {
+        const { serverProfiles, activeProfileId } = get()
+        return serverProfiles.find(p => p.id === activeProfileId) || null
+      },
+
       // Connection
       serverUrl: '',
-      setServerUrl: (url) => set({ serverUrl: url }),
+      setServerUrl: (url) => {
+        set({ serverUrl: url })
+        const { activeProfileId } = get()
+        if (activeProfileId) {
+          get().updateServerProfile(activeProfileId, { serverUrl: url })
+        }
+      },
       authMode: 'token',
-      setAuthMode: (mode) => set({ authMode: mode }),
+      setAuthMode: (mode) => {
+        set({ authMode: mode })
+        const { activeProfileId } = get()
+        if (activeProfileId) {
+          get().updateServerProfile(activeProfileId, { authMode: mode })
+        }
+      },
       gatewayToken: '',
       setGatewayToken: (token) => {
         set({ gatewayToken: token })
+        const { activeProfileId } = get()
+        if (activeProfileId) {
+          Platform.saveProfileToken(activeProfileId, token).catch(() => { })
+        }
         Platform.saveToken(token).catch(() => { })
       },
       connected: false,
@@ -326,7 +510,13 @@ export const useStore = create<AppState>()(
       setConnectionError: (error) => set({ connectionError: error }),
       client: null,
       deviceName: '',
-      setDeviceName: (name) => set({ deviceName: name }),
+      setDeviceName: (name) => {
+        set({ deviceName: name })
+        const { activeProfileId } = get()
+        if (activeProfileId) {
+          get().updateServerProfile(activeProfileId, { deviceName: name })
+        }
+      },
       pendingMessages: [],
 
       // Device Identity & Pairing
@@ -1361,6 +1551,41 @@ export const useStore = create<AppState>()(
           }
         } catch { /* ignore */ }
 
+        // Migration: create a default server profile from legacy single-server state
+        const { serverProfiles, serverUrl: legacyUrl, gatewayToken: currentToken, authMode: currentMode, deviceName: currentName, pinnedSessionKeys, collapsedSessionGroups } = get()
+        if (serverProfiles.length === 0 && legacyUrl) {
+          const id = crypto.randomUUID()
+          const profile: ServerProfile = {
+            id,
+            name: 'Server 1',
+            serverUrl: legacyUrl,
+            authMode: currentMode || 'token',
+            deviceName: currentName || '',
+          }
+          set({ serverProfiles: [profile], activeProfileId: id })
+          // Migrate token to profile-scoped storage
+          if (currentToken) {
+            await Platform.saveProfileToken(id, currentToken).catch(() => { })
+          }
+          // Migrate per-profile state
+          saveProfileState(id, { pinnedSessionKeys, collapsedSessionGroups })
+        }
+
+        // If there's an active profile, load its connection data
+        const { activeProfileId, serverProfiles: profiles } = get()
+        if (activeProfileId) {
+          const profile = profiles.find(p => p.id === activeProfileId)
+          if (profile) {
+            const profileToken = await Platform.getProfileToken(activeProfileId)
+            set({
+              serverUrl: profile.serverUrl,
+              authMode: profile.authMode,
+              deviceName: profile.deviceName,
+              gatewayToken: profileToken || currentToken || '',
+            })
+          }
+        }
+
         // Show settings if no URL or token configured
         const { serverUrl, gatewayToken } = get()
         if (!serverUrl || !gatewayToken) {
@@ -1608,6 +1833,8 @@ export const useStore = create<AppState>()(
           })
 
           client.on('disconnected', () => {
+            // Clean up timers — connection is down
+            clearResponseWatchdog()
             // Don't immediately mark as disconnected — use a grace period so
             // transient mobile drops (1-5s) don't flash the UI or disable input.
             if (disconnectGraceTimer) clearTimeout(disconnectGraceTimer)
@@ -1628,6 +1855,8 @@ export const useStore = create<AppState>()(
             const { sessionKey } = (payload || {}) as { sessionKey?: string }
             const { currentSessionId } = get()
             const resolvedKey = sessionKey || currentSessionId
+            // Server started streaming — cancel the response watchdog
+            clearResponseWatchdog()
             if (resolvedKey) {
               set((state) => ({
                 streamingSessions: { ...state.streamingSessions, [resolvedKey]: true },
@@ -1640,6 +1869,9 @@ export const useStore = create<AppState>()(
           })
 
           client.on('streamChunk', (chunkArg: unknown) => {
+            // Any streaming chunk means the connection is alive — cancel watchdog
+            if (responseWatchdogTimer) clearResponseWatchdog()
+
             const chunk = (chunkArg && typeof chunkArg === 'object')
               ? chunkArg as { text?: string; sessionKey?: string }
               : { text: String(chunkArg) }
@@ -1975,6 +2207,26 @@ export const useStore = create<AppState>()(
             get().fetchCronJobs(),
             get().fetchHooks()
           ])
+
+          // Reload current session's messages so the chat view is fresh after reconnect
+          const { currentSessionId: activeSession, client: freshClient } = get()
+          if (activeSession && freshClient) {
+            freshClient.getSessionMessages(activeSession).then((historyResult) => {
+              const { messages: loadedMessages, toolCalls: historyToolCalls } = historyResult
+              _sessionMessagesCache.set(activeSession, loadedMessages)
+              set((state) => {
+                if (state.currentSessionId !== activeSession) return state
+                const streamingMsgs = state.messages.filter(m => m.id.startsWith('streaming-'))
+                const mergedToolCalls = historyToolCalls.length > 0
+                  ? { ...state.sessionToolCalls, [activeSession]: historyToolCalls.map(tc => ({ ...tc, startedAt: 0 })) }
+                  : state.sessionToolCalls
+                return {
+                  messages: streamingMsgs.length > 0 ? [...loadedMessages, ...streamingMsgs] : loadedMessages,
+                  sessionToolCalls: mergedToolCalls
+                }
+              })
+            }).catch(() => { /* best-effort reload */ })
+          }
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : ''
 
@@ -2021,6 +2273,7 @@ export const useStore = create<AppState>()(
           clearTimeout(disconnectGraceTimer)
           disconnectGraceTimer = null
         }
+        clearResponseWatchdog()
         const { client } = get()
         client?.disconnect()
         if ((globalThis as any).__clawdeskClient === client) {
@@ -2084,6 +2337,54 @@ export const useStore = create<AppState>()(
             thinking: thinkingEnabled,
             attachments: attachments.map(({ previewUrl: _previewUrl, ...attachment }) => attachment)
           })
+
+          // Start response watchdog: if no streaming event arrives within the
+          // timeout, the connection is stale. Force-reconnect and retry once.
+          if (responseWatchdogRetried) {
+            // This is the retried send — don't set up another watchdog
+            responseWatchdogRetried = false
+          } else {
+            clearResponseWatchdog()
+            responseWatchdogPayload = { content, attachments, sessionId: sessionId! }
+            responseWatchdogTimer = setTimeout(async () => {
+              const payload = responseWatchdogPayload
+              if (!payload) return
+              const { client: currentClient } = get()
+
+              // Check if the connection is still alive via server tick timestamps
+              // (lightweight — no RPC call needed). If alive, the server may just
+              // be slow; don't reconnect, just warn.
+              if (currentClient?.isAlive()) {
+                console.warn('[response-watchdog] No streaming response, but connection is alive (ticks OK) — not reconnecting')
+                clearResponseWatchdog()
+                return
+              }
+
+              console.warn('[response-watchdog] No streaming response and connection is stale — reconnecting')
+              responseWatchdogRetried = true
+              // Clear streaming state for the stale session
+              set((state) => ({
+                streamingSessions: { ...state.streamingSessions, [payload.sessionId]: false },
+                streamingSessionId: null
+              }))
+              clearResponseWatchdog()
+              // Force reconnect, then re-send the message
+              try {
+                await get().connect()
+                console.log('[response-watchdog] Reconnected, retrying message')
+                get().sendMessage(payload.content, payload.attachments).catch(() => {})
+              } catch {
+                set((state) => ({
+                  messages: [...state.messages, {
+                    id: `error-${Date.now()}`,
+                    role: 'system' as const,
+                    content: 'Message may not have been delivered — connection was stale. Please try again.',
+                    timestamp: new Date().toISOString()
+                  }]
+                }))
+              }
+            }, RESPONSE_WATCHDOG_MS)
+          }
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : 'Unknown error'
           const isAuthOrScope = errMsg.includes('scope') || errMsg.includes('unauthorized') || errMsg.includes('permission')
@@ -2220,6 +2521,8 @@ export const useStore = create<AppState>()(
       name: 'clawcontrol-storage',
       partialize: (state) => ({
         theme: state.theme,
+        serverProfiles: state.serverProfiles,
+        activeProfileId: state.activeProfileId,
         serverUrl: state.serverUrl,
         authMode: state.authMode,
         deviceName: state.deviceName,
@@ -2247,6 +2550,7 @@ export const selectIsCompacting = (state: AppState) => state.compactingSession =
 // Without this, old module versions keep processing events, causing duplicate streams.
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
+    clearResponseWatchdog()
     const { client } = useStore.getState()
     if (client) {
       client.disconnect()

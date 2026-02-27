@@ -185,19 +185,14 @@ export async function getSessionMessages(call: RpcCaller, sessionId: string, gat
            content = ''
         }
 
-        // Detect heartbeat / cron trigger messages
+        // Detect heartbeat / cron trigger messages — hide them entirely
         const contentUpper = content.toUpperCase()
         const isHeartbeat =
           contentUpper.includes('HEARTBEAT_OK') ||
           contentUpper.includes('READ HEARTBEAT.MD') ||
           content.includes('# HEARTBEAT - Event-Driven Status') ||
           contentUpper.includes('CRON: HEARTBEAT')
-        if (isHeartbeat) {
-          // User-role heartbeat messages are cron triggers — hide them entirely
-          if (role === 'user') return null
-          // Assistant/system heartbeat responses — collapse to a heart emoji
-          content = '\u2764\uFE0F'
-        }
+        if (isHeartbeat) return null
 
         // Filter out cron-triggered user messages (scheduled reminders, updates, etc.)
         if (role === 'user') {

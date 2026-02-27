@@ -1,7 +1,7 @@
 // OpenClaw Client - Session API Methods
 
 import type { Session, RpcCaller } from './types'
-import { resolveSessionKey, toIsoTimestamp } from './utils'
+import { resolveSessionKey, toIsoTimestamp, isNoiseContent, stripAnsi } from './utils'
 
 // Extract agentId from session key format "agent:{agentId}:{uuid}"
 function extractAgentIdFromKey(key?: string): string | undefined {
@@ -19,6 +19,18 @@ function isSubagentKey(key?: string): boolean {
 // Cron-triggered sessions use key format "agent:<agentId>:cron:<jobName>"
 function isCronKey(key?: string): boolean {
   return !!key && key.includes(':cron:')
+}
+
+/** Clean up a session's lastMessage preview — strip noise, heartbeats, ANSI, etc. */
+function sanitizeLastMessage(raw: string | undefined): string | undefined {
+  if (!raw) return undefined
+  const text = stripAnsi(raw).trim()
+  if (!text) return undefined
+  if (isNoiseContent(text)) return undefined
+  // Strip cron-trigger user messages
+  const lower = text.toLowerCase()
+  if (lower.includes('a scheduled reminder has been triggered') || lower.includes('scheduled update')) return undefined
+  return text
 }
 
 export async function listSessions(call: RpcCaller): Promise<Session[]> {
@@ -41,7 +53,7 @@ export async function listSessions(call: RpcCaller): Promise<Session[]> {
         agentId: s.agentId || extractAgentIdFromKey(key),
         createdAt: new Date(s.updatedAt || s.createdAt || Date.now()).toISOString(),
         updatedAt: new Date(s.updatedAt || s.createdAt || Date.now()).toISOString(),
-        lastMessage: s.lastMessagePreview || s.lastMessage,
+        lastMessage: sanitizeLastMessage(s.lastMessagePreview || s.lastMessage),
         spawned,
         cron,
         parentSessionId: s.parentSessionId || s.parentKey || s.spawnedBy || undefined

@@ -63,6 +63,8 @@ export class OpenClawClient {
   private tickIntervalMs = 30000
   /** Watchdog timer that detects missed server ticks (dead connection). */
   private tickWatchTimer: ReturnType<typeof setTimeout> | null = null
+  /** Timestamp of the last received server tick event. */
+  private lastTickAt = 0
   /** When true, suppresses reconnect (auth failures, cert errors, etc.) */
   private suppressReconnect = false
   /** Track whether certError has been emitted this connect cycle */
@@ -878,6 +880,7 @@ export class OpenClawClient {
       }
       case 'tick':
         // Server keepalive — reset the tick watchdog so we don't false-positive
+        this.lastTickAt = Date.now()
         this.resetTickWatch()
         break
       case 'exec.approval.requested':
@@ -1075,4 +1078,14 @@ export class OpenClawClient {
   async rotateDeviceToken(deviceId: string, role: string, scopes?: string[]): Promise<void> { return nodesApi.rotateDeviceToken(this.call.bind(this), deviceId, role, scopes) }
   async revokeDeviceToken(deviceId: string, role: string): Promise<void> { return nodesApi.revokeDeviceToken(this.call.bind(this), deviceId, role) }
   async resolveExecApproval(approvalId: string, decision: nodesApi.ExecApprovalDecision): Promise<void> { return nodesApi.resolveExecApproval(this.call.bind(this), approvalId, decision) }
+
+  /** Lightweight liveness check — returns true if the server tick is recent (no RPC needed). */
+  isAlive(): boolean {
+    if (!this.ws || this.ws.readyState !== this.ws.OPEN || !this.authenticated) return false
+    // If we've never received a tick, fall back to lastMessageAt
+    const lastActivity = this.lastTickAt || this.lastMessageAt
+    if (!lastActivity) return this.authenticated
+    // Connection is alive if last tick/message arrived within 2× the tick interval
+    return Date.now() - lastActivity < this.tickIntervalMs * 2
+  }
 }

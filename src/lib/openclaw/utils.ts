@@ -197,7 +197,7 @@ export function isHeartbeatContent(text: string): boolean {
 /** Content that is agent noise — not meaningful to display. */
 export function isNoiseContent(text: string): boolean {
   const trimmed = text.trim()
-  return trimmed === 'NO_REPLY' || trimmed === 'no_reply'
+  return trimmed === 'NO_REPLY' || trimmed === 'no_reply' || isHeartbeatContent(trimmed)
 }
 
 /**
