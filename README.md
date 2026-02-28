@@ -2,7 +2,7 @@
 
 A cross-platform desktop and mobile client for OpenClaw AI assistant. Built with Electron, React, and TypeScript.
 
-> **Latest Release: [v1.3.1](https://github.com/jakeledwards/ClawControl/releases/tag/v1.3.1)** — Download the [DMG](https://github.com/jakeledwards/ClawControl/releases/download/v1.3.1/ClawControl-1.3.1-arm64.dmg) for macOS or the [ZIP](https://github.com/jakeledwards/ClawControl/releases/download/v1.3.1/ClawControl-1.3.1-arm64-mac.zip).
+> **Latest Release: [v1.4.0](https://github.com/jakeledwards/ClawControl/releases/tag/v1.4.0)** — Download the [DMG](https://github.com/jakeledwards/ClawControl/releases/download/v1.4.0/ClawControl-1.4.0-arm64.dmg) for macOS or the [ZIP](https://github.com/jakeledwards/ClawControl/releases/download/v1.4.0/ClawControl-1.4.0-arm64-mac.zip).
 
 ## Features
 
@@ -76,10 +76,10 @@ A cross-platform desktop and mobile client for OpenClaw AI assistant. Built with
 
 Pre-built binaries are available on the [Releases](https://github.com/jakeledwards/ClawControl/releases) page:
 
-- **ClawControl-1.3.1-arm64.dmg** — macOS installer (Apple Silicon)
-- **ClawControl-1.3.1-arm64-mac.zip** — macOS portable (Apple Silicon)
+- **ClawControl-1.4.0-arm64.dmg** — macOS installer (Apple Silicon)
+- **ClawControl-1.4.0-arm64-mac.zip** — macOS portable (Apple Silicon)
 
-### What's New in v1.3.1
+### What's New in v1.4.0
 
 **Major Features**
 - Image send/receive support in chat — attach PNG, JPG, GIF, or WebP images with inline preview
@@ -106,7 +106,7 @@ Pre-built binaries are available on the [Releases](https://github.com/jakeledwar
 - Fix iOS splash screen scale variant conflicts
 - Connection error surfacing in UI
 
-See the full [release notes](https://github.com/jakeledwards/ClawControl/releases/tag/v1.3.1) for details.
+See the full [release notes](https://github.com/jakeledwards/ClawControl/releases/tag/v1.4.0) for details.
 
 ## Installation (from source)
 
@@ -360,7 +360,7 @@ On connect, the server sends a `connect.challenge` event. The client responds wi
     minProtocol: 3,
     maxProtocol: 3,
     role: 'operator',
-    client: { id: 'openclaw-control-ui', displayName: 'ClawControl', version: '1.3.1' },
+    client: { id: 'openclaw-control-ui', displayName: 'ClawControl', version: '1.4.0' },
     auth: { deviceId: '...', signature: '...', timestamp: 1234567890 }
   }
 }
