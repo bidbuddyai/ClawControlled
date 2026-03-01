@@ -167,12 +167,14 @@ export function parseMediaTokens(text: string, gatewayUrl?: string): {
             baseUrl = `${protocol}//${u.host}`
           } catch { /* ignore */ }
         }
-        const url = `${baseUrl}/api/media${mediaPath}`
+        const url = `${baseUrl}/media/${mediaPath.replace(/^\/+/, '')}`
         if (isAudio) {
           audioUrls.push(url)
         } else {
           images.push({ url, alt: mediaPath.split('/').pop() || 'Generated image' })
         }
+      } else if (/^data:image\//i.test(mediaPath)) {
+        images.push({ url: mediaPath, alt: 'Generated image' })
       } else if (/^https?:\/\//i.test(mediaPath)) {
         if (isAudio) {
           audioUrls.push(mediaPath)
