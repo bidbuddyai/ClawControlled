@@ -1727,7 +1727,8 @@ export const useStore = create<AppState>()(
               content: msgPayload.content,
               timestamp: msgPayload.timestamp,
               thinking: msgPayload.thinking || get().streamingThinking[resolvedKey || ''] || undefined,
-              images: msgPayload.images
+              images: msgPayload.images,
+              audioUrl: msgPayload.audioUrl
             }
             let replacedStreaming = false
 
