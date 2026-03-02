@@ -51,12 +51,12 @@ export async function listCronJobs(call: RpcCaller): Promise<CronJob[]> {
 }
 
 export async function toggleCronJob(call: RpcCaller, cronId: string, enabled: boolean): Promise<void> {
-  await call('cron.update', { id: cronId, enabled })
+  await call('cron.update', { jobId: cronId, patch: { enabled } })
 }
 
 export async function getCronJobDetails(call: RpcCaller, cronId: string): Promise<CronJob | null> {
   try {
-    const result = await call<any>('cron.get', { id: cronId })
+    const result = await call<any>('cron.get', { jobId: cronId })
     if (!result) return null
     return mapCronJob(result, cronId)
   } catch {
@@ -69,13 +69,13 @@ export async function addCronJob(call: RpcCaller, params: any): Promise<void> {
 }
 
 export async function updateCronJob(call: RpcCaller, cronId: string, params: any): Promise<void> {
-  await call('cron.update', { id: cronId, ...params })
+  await call('cron.update', { jobId: cronId, patch: params })
 }
 
 export async function removeCronJob(call: RpcCaller, cronId: string): Promise<void> {
-  await call('cron.remove', { id: cronId })
+  await call('cron.remove', { jobId: cronId })
 }
 
 export async function runCronJob(call: RpcCaller, cronId: string): Promise<void> {
-  await call('cron.run', { id: cronId })
+  await call('cron.run', { jobId: cronId })
 }
