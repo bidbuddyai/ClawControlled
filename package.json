@@ -1,6 +1,6 @@
 {
   "name": "clawcontrol",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Desktop and mobile client for OpenClaw AI assistant",
   "main": "dist-electron/main.js",
   "author": {
@@ -38,7 +38,10 @@
     "@capacitor/app": "^8.0.0",
     "@capacitor/app-launcher": "^8.0.0",
     "@capacitor/browser": "^8.0.0",
+    "@capacitor/camera": "^8.0.0",
     "@capacitor/core": "^8.0.2",
+    "@capacitor/device": "^8.0.0",
+    "@capacitor/geolocation": "^8.0.0",
     "@capacitor/haptics": "^8.0.0",
     "@capacitor/keyboard": "^8.0.0",
     "@capacitor/local-notifications": "^8.0.0",

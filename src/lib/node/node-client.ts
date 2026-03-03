@@ -20,6 +20,7 @@ export class NodeClient {
   private authMode: 'token' | 'password'
   private deviceIdentity: DeviceIdentity | null
   private deviceName: string | null
+  private permissions: Record<string, boolean>
   private requestId = 0
   private authenticated = false
   private reconnectAttempts = 0
@@ -34,7 +35,8 @@ export class NodeClient {
     authMode: 'token' | 'password',
     wsFactory?: ((url: string) => any) | null,
     deviceIdentity?: DeviceIdentity | null,
-    deviceName?: string
+    deviceName?: string,
+    permissions?: Record<string, boolean>
   ) {
     this.url = url
     this.token = token
@@ -42,6 +44,7 @@ export class NodeClient {
     this.wsFactory = wsFactory || null
     this.deviceIdentity = deviceIdentity || null
     this.deviceName = deviceName || null
+    this.permissions = permissions || {}
   }
 
   on(event: string, handler: EventHandler): void {
@@ -176,9 +179,9 @@ export class NodeClient {
           platform: getPlatform(),
           mode: OPENCLAW_CLIENT_MODE
         },
-        caps: getCapNames(),
-        commands: getCommands(),
-        permissions: getPermissions(),
+        caps: getCapNames(this.permissions),
+        commands: getCommands(this.permissions),
+        permissions: getPermissions(this.permissions),
         auth: this.token
           ? (this.authMode === 'password' ? { password: this.token } : { token: this.token })
           : undefined,
@@ -247,19 +250,7 @@ export class NodeClient {
     }
   }
 
-  private async handleInvoke(payload: unknown): Promise<void> {
-    const req = payload as InvokeRequest
-    if (!req?.command) return
-
-    const invokeId = req.id || ''
-    console.log('[node] invoke request (full payload):', JSON.stringify(payload))
-
-    const result = await dispatch({ ...req, id: invokeId })
-
-    console.log('[node] invoke result:', { invokeId, ok: result.ok })
-
-    // Send result as an RPC request (clients can only send req frames, not events)
-    const raw = payload as Record<string, unknown>
+  private sendInvokeResult(invokeId: string, raw: Record<string, unknown>, result: import('./types').InvokeResult): void {
     const reqId = (++this.requestId).toString()
     const params: Record<string, unknown> = {
       id: invokeId,
@@ -283,7 +274,28 @@ export class NodeClient {
     } catch {
       // socket dead
     }
+  }
 
+  private async handleInvoke(payload: unknown): Promise<void> {
+    const req = payload as InvokeRequest
+    if (!req?.command) return
+
+    const invokeId = req.id || ''
+    const raw = payload as Record<string, unknown>
+    console.log('[node] invoke request (full payload):', JSON.stringify(payload))
+
+    // Defense-in-depth: reject commands not in the user's permissions
+    if (!this.permissions[req.command]) {
+      this.sendInvokeResult(invokeId, raw, {
+        ok: false,
+        error: { code: 'PERMISSION_DENIED', message: `Command "${req.command}" is not permitted` }
+      })
+      return
+    }
+
+    const result = await dispatch({ ...req, id: invokeId })
+    console.log('[node] invoke result:', { invokeId, ok: result.ok })
+    this.sendInvokeResult(invokeId, raw, result)
     this.emit('invoke', { command: req.command, result })
   }
 

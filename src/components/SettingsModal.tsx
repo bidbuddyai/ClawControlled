@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useStore } from '../store'
 import { getPlatform, openExternal } from '../lib/platform'
 import { clearDeviceToken } from '../lib/device-identity'
+import { NodePermissionsDialog } from './NodePermissionsDialog'
 
 export function SettingsModal() {
   const {
@@ -53,6 +54,7 @@ export function SettingsModal() {
   const [autoRetryCount, setAutoRetryCount] = useState(0)
   const [autoRetryTimer, setAutoRetryTimer] = useState<ReturnType<typeof setInterval> | null>(null)
   const [nextRetryIn, setNextRetryIn] = useState(0)
+  const [showNodePermissions, setShowNodePermissions] = useState(false)
 
   useEffect(() => {
     setUrl(serverUrl)
@@ -685,7 +687,25 @@ export function SettingsModal() {
               </label>
             </label>
             <span className="form-hint">Allow the AI agent to invoke commands on this device (clipboard, notifications, device info)</span>
+            {nodeEnabled && (
+              <button
+                className="btn btn-secondary"
+                style={{ marginTop: '8px', fontSize: '12px' }}
+                onClick={() => setShowNodePermissions(true)}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14" style={{ marginRight: '6px' }}>
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                  <path d="M7 11V7a5 5 0 0110 0v4" />
+                </svg>
+                Configure Permissions
+              </button>
+            )}
           </div>
+
+          <NodePermissionsDialog
+            open={showNodePermissions}
+            onClose={() => setShowNodePermissions(false)}
+          />
 
           {connected && (
             <div className="form-group" style={{ borderTop: '1px solid var(--border)', paddingTop: '16px', marginTop: '16px' }}>

@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { OpenClawClient, Message, Session, Agent, Skill, CronJob, Hook, HooksConfig, AgentFile, CreateAgentParams, buildIdentityContent, stripBase64FromStreaming } from '../lib/openclaw'
 import { NodeClient } from '../lib/node'
+import { getDefaultPermissions } from '../lib/node/command-catalog'
 import type { Node, ExecApprovalsResponse, DevicePairListResponse, ExecApprovalDecision } from '../lib/openclaw'
 import type { ClawHubSkill, ClawHubSort } from '../lib/clawhub'
 import { listClawHubSkills, searchClawHub, getClawHubSkill, getClawHubSkillVersion, getClawHubSkillConvex } from '../lib/clawhub'
@@ -20,6 +21,7 @@ export interface ServerProfile {
   authMode: 'token' | 'password'
   deviceName: string
   nodeEnabled?: boolean
+  nodePermissions?: Record<string, boolean>
 }
 
 interface PerProfileState {
@@ -140,6 +142,10 @@ interface AppState {
   nodeEnabled: boolean
   setNodeEnabled: (enabled: boolean) => void
   nodeConnected: boolean
+  nodePermissions: Record<string, boolean>
+  setNodePermissions: (permissions: Record<string, boolean>) => void
+  setNodePermission: (command: string, enabled: boolean) => void
+  reconnectNode: () => Promise<void>
 
   // Settings Modal
   showSettings: boolean
@@ -509,6 +515,7 @@ export const useStore = create<AppState>()(
           mainView: 'chat',
           nodeEnabled: profile.nodeEnabled ?? false,
           nodeConnected: false,
+          nodePermissions: profile.nodePermissions ?? getDefaultPermissions(Platform.getPlatform()),
         })
       },
       getActiveProfile: () => {
@@ -548,8 +555,64 @@ export const useStore = create<AppState>()(
       setConnectionError: (error) => set({ connectionError: error }),
       client: null,
       nodeEnabled: false,
-      setNodeEnabled: (enabled) => set({ nodeEnabled: enabled }),
+      setNodeEnabled: (enabled) => {
+        set({ nodeEnabled: enabled })
+        const { activeProfileId } = get()
+        if (activeProfileId) {
+          get().updateServerProfile(activeProfileId, { nodeEnabled: enabled })
+        }
+      },
       nodeConnected: false,
+      nodePermissions: getDefaultPermissions(Platform.getPlatform()),
+      setNodePermissions: (permissions) => {
+        set({ nodePermissions: permissions })
+        const { activeProfileId } = get()
+        if (activeProfileId) {
+          get().updateServerProfile(activeProfileId, { nodePermissions: permissions })
+        }
+      },
+      setNodePermission: (command, enabled) => {
+        const perms = { ...get().nodePermissions, [command]: enabled }
+        get().setNodePermissions(perms)
+      },
+      reconnectNode: async () => {
+        // Disconnect existing node client
+        const existing = (globalThis as any).__clawdeskNodeClient as NodeClient | undefined
+        if (existing) {
+          existing.disconnect()
+          ;(globalThis as any).__clawdeskNodeClient = null
+          set({ nodeConnected: false })
+        }
+        // Reconnect if node mode is enabled and main client is connected
+        if (!get().nodeEnabled || !get().connected) return
+        // Trigger a full reconnect which will pick up current permissions
+        const { serverUrl, gatewayToken, authMode, deviceName, nodePermissions } = get()
+        const deviceIdentity = await getOrCreateDeviceIdentity()
+        const wsFactory = Platform.createWebSocketFactory()
+        let serverHost: string | null = null
+        try { serverHost = new URL(serverUrl).host } catch { /* ignore */ }
+
+        let nodeToken = gatewayToken
+        if (serverHost) {
+          try {
+            const stored = await getDeviceToken(serverHost, 'node')
+            if (stored) nodeToken = stored
+          } catch { /* ignore */ }
+        }
+
+        const nodeClient = new NodeClient(
+          serverUrl, nodeToken, authMode, wsFactory,
+          deviceIdentity, deviceName || undefined, nodePermissions
+        )
+        nodeClient.on('connected', () => set({ nodeConnected: true }))
+        nodeClient.on('disconnected', () => set({ nodeConnected: false }))
+        ;(globalThis as any).__clawdeskNodeClient = nodeClient
+        try {
+          await nodeClient.connect()
+        } catch {
+          // silently fail — node mode is best-effort
+        }
+      },
       deviceName: '',
       setDeviceName: (name) => {
         set({ deviceName: name })
@@ -2310,7 +2373,8 @@ export const useStore = create<AppState>()(
               get().authMode,
               wsFactory,
               deviceIdentity,
-              get().deviceName || undefined
+              get().deviceName || undefined,
+              get().nodePermissions
             )
             nodeClient.on('connected', (payload: unknown) => {
               set({ nodeConnected: true })
@@ -2349,7 +2413,8 @@ export const useStore = create<AppState>()(
                   get().authMode,
                   wsFactory,
                   deviceIdentity,
-                  get().deviceName || undefined
+                  get().deviceName || undefined,
+                  get().nodePermissions
                 )
                 retryClient.on('connected', (p: unknown) => {
                   set({ nodeConnected: true })
@@ -2735,7 +2800,8 @@ export const useStore = create<AppState>()(
         streamingDisabled: state.streamingDisabled,
         notificationsEnabled: state.notificationsEnabled,
         rightPanelWidth: state.rightPanelWidth,
-        nodeEnabled: state.nodeEnabled
+        nodeEnabled: state.nodeEnabled,
+        nodePermissions: state.nodePermissions
       })
     }
   )
