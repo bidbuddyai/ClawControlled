@@ -21,13 +21,11 @@
             </intent-filter>
         </activity>
 
-        <service
-            android:name=".ConnectionService"
-            android:foregroundServiceType="specialUse"
-            android:exported="false">
+        <service android:name=".ConnectionService" android:foregroundServiceType="specialUse" android:exported="false">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Maintains a WebSocket connection for remote device commands" />
+                android:value="Maintains a WebSocket connection for remote device commands"
+            />
         </service>
 
         <provider

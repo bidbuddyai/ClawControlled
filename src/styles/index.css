@@ -3074,11 +3074,18 @@ a {
 
 .detail-header {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: var(--space-md);
   padding: var(--space-lg);
   border-bottom: 1px solid var(--border-subtle);
   background: var(--bg-elevated);
+}
+
+.detail-header-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
 }
 
 .detail-back {
@@ -3103,7 +3110,6 @@ a {
 }
 
 .detail-title-section {
-  flex: 1;
   display: flex;
   align-items: center;
   gap: var(--space-md);

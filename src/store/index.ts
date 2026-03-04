@@ -1865,7 +1865,7 @@ export const useStore = create<AppState>()(
 
           // Set up event handlers
           client.on('message', (msgArg: unknown) => {
-            const msgPayload = msgArg as Message & { sessionKey?: string }
+            const msgPayload = msgArg as Message & { sessionKey?: string; audioAsVoice?: boolean }
             const sessionKey = msgPayload.sessionKey
             const { currentSessionId } = get()
             const resolvedKey = sessionKey || currentSessionId
@@ -1892,7 +1892,8 @@ export const useStore = create<AppState>()(
               timestamp: msgPayload.timestamp,
               thinking: msgPayload.thinking || get().streamingThinking[resolvedKey || ''] || undefined,
               images: msgPayload.images,
-              audioUrl: msgPayload.audioUrl
+              audioUrl: msgPayload.audioUrl,
+              audioAsVoice: msgPayload.audioAsVoice || undefined
             }
             let replacedStreaming = false
 
@@ -1919,6 +1920,20 @@ export const useStore = create<AppState>()(
               }
 
               if (lastMsg && lastMsg.role === 'assistant' && lastMsg.id.startsWith('streaming-')) {
+                // Don't replace a streaming placeholder with a media-only message
+                // (e.g. from lifecycle end) — that would destroy streamed text.
+                // Instead, merge media into the streaming message.
+                const isMediaOnly = !message.content.trim() && (message.images?.length || message.audioUrl)
+                if (isMediaOnly) {
+                  const updated = [...state.messages]
+                  updated[lastIdx] = {
+                    ...lastMsg,
+                    images: [...(lastMsg.images || []), ...(message.images || [])],
+                    audioUrl: message.audioUrl || lastMsg.audioUrl,
+                    audioAsVoice: message.audioAsVoice || lastMsg.audioAsVoice,
+                  }
+                  return { messages: updated, streamingSessions }
+                }
                 replacedStreaming = true
                 const updated = [...state.messages]
                 updated[lastIdx] = { ...message }

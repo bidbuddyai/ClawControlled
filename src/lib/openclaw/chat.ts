@@ -200,6 +200,7 @@ export async function getSessionMessages(call: RpcCaller, sessionId: string, gat
 
         // Parse MEDIA: tokens from assistant messages and convert to image/audio URLs
         let audioUrl: string | undefined
+        let audioAsVoice: boolean | undefined
         if (normalizedRole === 'assistant' && content.includes('MEDIA:')) {
           const parsed = parseMediaTokens(content, gatewayUrl)
           content = parsed.cleanText
@@ -211,9 +212,40 @@ export async function getSessionMessages(call: RpcCaller, sessionId: string, gat
           }
         }
 
+        // Extract mediaUrl/mediaUrls from sendPayload-style history messages
+        if (typeof msg.mediaUrl === 'string' && msg.mediaUrl) {
+          images.push({ url: msg.mediaUrl, alt: 'Media' })
+        }
+        if (Array.isArray(msg.mediaUrls)) {
+          for (const u of msg.mediaUrls) {
+            if (typeof u === 'string' && u) images.push({ url: u, alt: 'Media' })
+          }
+        }
+        // Also check the wrapper level (m) for mediaUrl/mediaUrls
+        if (typeof m.mediaUrl === 'string' && m.mediaUrl) {
+          images.push({ url: m.mediaUrl, alt: 'Media' })
+        }
+        if (Array.isArray(m.mediaUrls)) {
+          for (const u of m.mediaUrls) {
+            if (typeof u === 'string' && u) images.push({ url: u, alt: 'Media' })
+          }
+        }
+        // Extract audioAsVoice flag
+        if (msg.audioAsVoice === true || m.audioAsVoice === true) {
+          audioAsVoice = true
+        }
+
         // Filter out non-assistant entries without displayable text content.
         // Keep empty assistant messages so tool calls can anchor to them.
         if (!content && images.length === 0 && !audioUrl && normalizedRole !== 'assistant') return null
+
+        // Deduplicate images by URL
+        const seenUrls = new Set<string>()
+        const dedupedImages = images.filter(img => {
+          if (seenUrls.has(img.url)) return false
+          seenUrls.add(img.url)
+          return true
+        })
 
         return {
           id: msgId,
@@ -221,8 +253,9 @@ export async function getSessionMessages(call: RpcCaller, sessionId: string, gat
           content: stripAnsi(content),
           thinking: thinking ? stripAnsi(thinking) : thinking,
           timestamp: new Date(msg.timestamp || m.timestamp || msg.ts || m.ts || msg.createdAt || m.createdAt || Date.now()).toISOString(),
-          images: images.length > 0 ? images : undefined,
-          audioUrl
+          images: dedupedImages.length > 0 ? dedupedImages : undefined,
+          audioUrl,
+          audioAsVoice: audioAsVoice || undefined
         }
       }) as (Message | null)[]
 

@@ -28,12 +28,28 @@ export function SkillDetailView() {
   return (
     <div className="detail-view">
       <div className="detail-header">
-        <button className="detail-back" onClick={closeDetailView} aria-label="Back to chat">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M19 12H5M12 19l-7-7 7-7" />
-          </svg>
-          <span>Back</span>
-        </button>
+        <div className="detail-header-top">
+          <button className="detail-back" onClick={closeDetailView} aria-label="Back to chat">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M19 12H5M12 19l-7-7 7-7" />
+            </svg>
+            <span>Back</span>
+          </button>
+          <div className="detail-actions">
+            <div className={`status-badge ${selectedSkill.enabled ? 'enabled' : 'disabled'}`}>
+              {selectedSkill.enabled ? 'Enabled' : 'Disabled'}
+            </div>
+            <button
+              className={`toggle-button ${selectedSkill.enabled ? 'active' : ''}`}
+              onClick={handleToggle}
+              aria-label={selectedSkill.enabled ? 'Disable skill' : 'Enable skill'}
+            >
+              <span className="toggle-track">
+                <span className="toggle-thumb" />
+              </span>
+            </button>
+          </div>
+        </div>
         <div className="detail-title-section">
           <div className="detail-icon skill-icon">
             {selectedSkill.emoji ? (
@@ -48,20 +64,6 @@ export function SkillDetailView() {
             <h1 className="detail-title">{selectedSkill.name}</h1>
             <p className="detail-subtitle">{selectedSkill.description}</p>
           </div>
-        </div>
-        <div className="detail-actions">
-          <div className={`status-badge ${selectedSkill.enabled ? 'enabled' : 'disabled'}`}>
-            {selectedSkill.enabled ? 'Enabled' : 'Disabled'}
-          </div>
-          <button
-            className={`toggle-button ${selectedSkill.enabled ? 'active' : ''}`}
-            onClick={handleToggle}
-            aria-label={selectedSkill.enabled ? 'Disable skill' : 'Enable skill'}
-          >
-            <span className="toggle-track">
-              <span className="toggle-thumb" />
-            </span>
-          </button>
         </div>
       </div>
 

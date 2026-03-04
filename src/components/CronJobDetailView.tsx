@@ -320,12 +320,43 @@ export function CronJobDetailView() {
   return (
     <div className="detail-view">
       <div className="detail-header">
-        <button className="detail-back" onClick={closeDetailView} aria-label="Back to chat">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M19 12H5M12 19l-7-7 7-7" />
-          </svg>
-          <span>Back</span>
-        </button>
+        <div className="detail-header-top">
+          <button className="detail-back" onClick={closeDetailView} aria-label="Back to chat">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M19 12H5M12 19l-7-7 7-7" />
+            </svg>
+            <span>Back</span>
+          </button>
+          <div className="detail-actions">
+            <button
+              className="btn btn-secondary"
+              data-testid="cron-run-now"
+              onClick={handleRun}
+              disabled={running}
+              title="Run Now"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+                <polygon points="5 3 19 12 5 21 5 3" />
+              </svg>
+              {running ? 'Running...' : 'Run'}
+            </button>
+
+            <div className={`status-badge ${isActive ? 'enabled' : 'disabled'}`}>
+              {isActive ? 'Active' : 'Paused'}
+            </div>
+            <button
+              className={`toggle-button ${isActive ? 'active' : ''}`}
+              data-testid="cron-pause-toggle"
+              onClick={handleToggle}
+              aria-label={isActive ? 'Pause cron job' : 'Resume cron job'}
+            >
+              <span className="toggle-track">
+                <span className="toggle-thumb" />
+              </span>
+            </button>
+          </div>
+        </div>
         <div className="detail-title-section">
           <div className="detail-icon cron-icon">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -360,35 +391,6 @@ export function CronJobDetailView() {
               <p className="detail-subtitle">{selectedCronJob.description}</p>
             )}
           </div>
-        </div>
-        <div className="detail-actions">
-          <button
-            className="btn btn-secondary"
-            data-testid="cron-run-now"
-            onClick={handleRun}
-            disabled={running}
-            title="Run Now"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-              <polygon points="5 3 19 12 5 21 5 3" />
-            </svg>
-            {running ? 'Running...' : 'Run'}
-          </button>
-
-          <div className={`status-badge ${isActive ? 'enabled' : 'disabled'}`}>
-            {isActive ? 'Active' : 'Paused'}
-          </div>
-          <button
-            className={`toggle-button ${isActive ? 'active' : ''}`}
-            data-testid="cron-pause-toggle"
-            onClick={handleToggle}
-            aria-label={isActive ? 'Pause cron job' : 'Resume cron job'}
-          >
-            <span className="toggle-track">
-              <span className="toggle-thumb" />
-            </span>
-          </button>
         </div>
       </div>
 

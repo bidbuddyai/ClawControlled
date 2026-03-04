@@ -31,10 +31,12 @@ interface SessionStreamState {
   blockOffset: number
   started: boolean
   runId: string | null
+  /** Raw MEDIA: lines stripped during streaming, preserved for lifecycle-end extraction. */
+  mediaLines: string[]
 }
 
 function createSessionStream(): SessionStreamState {
-  return { source: null, text: '', mode: null, blockOffset: 0, started: false, runId: null }
+  return { source: null, text: '', mode: null, blockOffset: 0, started: false, runId: null, mediaLines: [] }
 }
 
 export class OpenClawClient {
@@ -794,6 +796,24 @@ export class OpenClawClient {
                 audioUrl = parsed.audioUrls[0]
               }
             }
+            // Extract mediaUrl/mediaUrls from sendPayload-style events
+            if (typeof payload.mediaUrl === 'string' && payload.mediaUrl) {
+              images.push({ url: payload.mediaUrl, alt: 'Media' })
+            }
+            if (Array.isArray(payload.mediaUrls)) {
+              for (const u of payload.mediaUrls) {
+                if (typeof u === 'string' && u) images.push({ url: u, alt: 'Media' })
+              }
+            }
+            // Extract audioAsVoice flag from sendPayload
+            const audioAsVoice = payload.audioAsVoice === true
+            // Deduplicate images by URL
+            const seenUrls = new Set<string>()
+            images = images.filter(img => {
+              if (seenUrls.has(img.url)) return false
+              seenUrls.add(img.url)
+              return true
+            })
             if ((text && !isNoiseContent(text) && !isHeartbeatContent(text)) || images.length > 0 || audioUrl) {
               const id =
                 (typeof payload.message.id === 'string' && payload.message.id) ||
@@ -810,6 +830,7 @@ export class OpenClawClient {
                 thinking,
                 images: images.length > 0 ? images : undefined,
                 audioUrl,
+                audioAsVoice: audioAsVoice || undefined,
                 sessionKey: eventSessionKey
               })
             }
@@ -837,11 +858,18 @@ export class OpenClawClient {
           let canonicalText = stripSystemNotifications(
             typeof payload.data?.text === 'string' ? stripAnsi(payload.data.text) : ''
           )
-          // Strip MEDIA: lines and trailing partial MEDIA tokens from streaming text
+          // Strip MEDIA: lines and trailing partial MEDIA tokens from streaming text.
+          // Preserve stripped MEDIA: lines for lifecycle-end extraction.
           if (canonicalText.includes('MEDIA')) {
-            canonicalText = canonicalText
-              .split('\n')
-              .filter(l => !/\bMEDIA:\s*/i.test(l))
+            const lines = canonicalText.split('\n')
+            const mediaRe = /\bMEDIA:\s*/i
+            for (const l of lines) {
+              if (mediaRe.test(l) && !ss.mediaLines.includes(l.trim())) {
+                ss.mediaLines.push(l.trim())
+              }
+            }
+            canonicalText = lines
+              .filter(l => !mediaRe.test(l))
               .join('\n')
               .replace(/\s*\bMEDIA\s*$/, '') // strip trailing partial "MEDIA" before colon arrives
               .trim()
@@ -856,7 +884,14 @@ export class OpenClawClient {
             typeof payload.data?.delta === 'string' ? stripAnsi(payload.data.delta) : ''
           )
           if (deltaText.includes('MEDIA:')) {
-            deltaText = deltaText.split('\n').filter(l => !/\bMEDIA:\s*/i.test(l)).join('\n').trim()
+            const deltaLines = deltaText.split('\n')
+            const mediaRe = /\bMEDIA:\s*/i
+            for (const l of deltaLines) {
+              if (mediaRe.test(l) && !ss.mediaLines.includes(l.trim())) {
+                ss.mediaLines.push(l.trim())
+              }
+            }
+            deltaText = deltaLines.filter(l => !mediaRe.test(l)).join('\n').trim()
           }
           if (deltaText && !isNoiseContent(deltaText) && !isHeartbeatContent(deltaText)) {
             const nextText = this.mergeIncoming(ss, deltaText, 'delta')
@@ -918,6 +953,46 @@ export class OpenClawClient {
           const phase = payload.data?.phase
           const state = payload.data?.state
           if (phase === 'end' || phase === 'error' || state === 'complete' || state === 'error') {
+            // Before ending the stream, extract any MEDIA: lines that were stripped
+            // during streaming. These are preserved in ss.mediaLines and would be lost
+            // if no chat:final arrives to parse them from the canonical message.
+            if (ss.source === 'agent' && ss.mediaLines.length > 0) {
+              const mediaText = ss.mediaLines.join('\n')
+              const parsed = parseMediaTokens(mediaText, this.url)
+              if (parsed.images.length > 0 || parsed.audioUrls.length > 0) {
+                this.emit('message', {
+                  id: `media-${Date.now()}`,
+                  role: 'assistant',
+                  content: '',
+                  timestamp: new Date().toISOString(),
+                  images: parsed.images.length > 0 ? parsed.images : undefined,
+                  audioUrl: parsed.audioUrls[0],
+                  sessionKey: eventSessionKey
+                })
+              }
+            }
+
+            // Also extract mediaUrl/mediaUrls from the lifecycle event payload itself
+            const lifecycleImages: Array<{ url: string; alt?: string }> = []
+            if (typeof payload.mediaUrl === 'string' && payload.mediaUrl) {
+              lifecycleImages.push({ url: payload.mediaUrl, alt: 'Media' })
+            }
+            if (Array.isArray(payload.mediaUrls)) {
+              for (const u of payload.mediaUrls) {
+                if (typeof u === 'string' && u) lifecycleImages.push({ url: u, alt: 'Media' })
+              }
+            }
+            if (lifecycleImages.length > 0) {
+              this.emit('message', {
+                id: `media-lc-${Date.now()}`,
+                role: 'assistant',
+                content: '',
+                timestamp: new Date().toISOString(),
+                images: lifecycleImages,
+                sessionKey: eventSessionKey
+              })
+            }
+
             if (ss.source === 'agent' && ss.started) {
               this.emit('streamEnd', { sessionKey: eventSessionKey })
               // Partial reset: keep source and text so late-arriving chat:delta

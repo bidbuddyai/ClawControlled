@@ -418,7 +418,7 @@ const MessageBubble = memo(function MessageBubble({
               streaming={!!streamingThinking && !message.thinking}
             />
           )}
-          <MessageContent content={message.content} images={message.images} audioUrl={message.audioUrl} />
+          <MessageContent content={message.content} images={message.images} audioUrl={message.audioUrl} audioAsVoice={message.audioAsVoice} />
         </div>
       </div>
 
@@ -586,22 +586,109 @@ function dataUriToBlobUrl(dataUri: string): string | null {
   }
 }
 
+/** Detect whether a URL points to a gateway /media/ endpoint that needs auth.
+ *  Validates both the path AND the origin to prevent sending auth tokens to untrusted hosts. */
+function isGatewayMediaUrl(url: string, serverUrl: string): boolean {
+  try {
+    const u = new URL(url)
+    if (!u.pathname.startsWith('/media/')) return false
+    // Verify origin matches the configured server
+    if (!serverUrl) return false
+    const server = new URL(serverUrl)
+    // Compare host (ignoring ws/wss vs http/https protocol difference)
+    return u.host === server.host
+  } catch {
+    return false
+  }
+}
+
 function ChatImage({ url, alt }: { url: string; alt?: string }) {
   const [error, setError] = useState(false)
   // Track whether we already tried falling back from blob URL to data URI
   const [blobFailed, setBlobFailed] = useState(false)
+  // Auth-fetched blob URL for gateway /media/ paths
+  const [authBlobUrl, setAuthBlobUrl] = useState<string | null>(null)
+  const gatewayToken = useStore(state => state.gatewayToken)
+  const serverUrl = useStore(state => state.serverUrl)
+  const isGatewayMedia = isGatewayMediaUrl(url, serverUrl)
+
   const blobUrl = useMemo(() => {
     if (url.startsWith('data:')) return dataUriToBlobUrl(url)
     return null
   }, [url])
 
-  // Revoke blob URL on unmount to prevent memory leaks
+  // Revoke blob URLs on unmount to prevent memory leaks
   useEffect(() => {
-    return () => { if (blobUrl) URL.revokeObjectURL(blobUrl) }
+    return () => {
+      if (blobUrl) URL.revokeObjectURL(blobUrl)
+    }
   }, [blobUrl])
 
-  // Use blob URL first, fall back to original data URI if blob fails (e.g. Android WebView)
-  const src = (blobUrl && !blobFailed) ? blobUrl : url
+  // Fetch gateway /media/ URLs with auth token.
+  // Reset state when url/token changes to avoid showing stale blobs.
+  useEffect(() => {
+    if (!isGatewayMedia) {
+      setAuthBlobUrl(prev => { if (prev) URL.revokeObjectURL(prev); return null })
+      return
+    }
+    // Reset for new fetch
+    setError(false)
+    setAuthBlobUrl(prev => { if (prev) URL.revokeObjectURL(prev); return null })
+
+    const controller = new AbortController()
+    const headers: Record<string, string> = {}
+    if (gatewayToken) {
+      headers['Authorization'] = `Bearer ${gatewayToken}`
+    }
+    fetch(url, { headers, signal: controller.signal })
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        return r.blob()
+      })
+      .then(b => {
+        if (!controller.signal.aborted) {
+          setAuthBlobUrl(URL.createObjectURL(b))
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setError(true)
+      })
+    return () => {
+      controller.abort()
+    }
+  }, [url, gatewayToken, isGatewayMedia])
+
+  // Clean up auth blob URL on unmount
+  useEffect(() => {
+    return () => {
+      if (authBlobUrl) URL.revokeObjectURL(authBlobUrl)
+    }
+  }, [authBlobUrl])
+
+  // Determine the src to use:
+  // - Gateway media URLs: use auth-fetched blob
+  // - Data URIs: use converted blob (or original as fallback)
+  // - Everything else: use URL directly
+  let src: string
+  if (isGatewayMedia) {
+    if (authBlobUrl) {
+      src = authBlobUrl
+    } else {
+      // Still loading — show nothing until fetch completes (or errors)
+      if (!error) {
+        return (
+          <div className="image-loading-placeholder">
+            <svg className="spinning" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+            </svg>
+          </div>
+        )
+      }
+      src = url
+    }
+  } else {
+    src = (blobUrl && !blobFailed) ? blobUrl : url
+  }
 
   if (error) {
     // For data: URIs, a link is useless — show an inline error placeholder.
@@ -643,7 +730,7 @@ renderer.code = function (this: unknown, ...args: Parameters<typeof originalCode
   return `<div class="code-block-wrapper"><button class="code-copy-btn" type="button" aria-label="Copy code"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>${html}</div>`
 }
 
-function MessageContent({ content, images, audioUrl }: { content: string; images?: Message['images']; audioUrl?: string }) {
+function MessageContent({ content, images, audioUrl, audioAsVoice }: { content: string; images?: Message['images']; audioUrl?: string; audioAsVoice?: boolean }) {
   const ref = useRef<HTMLDivElement>(null)
   const hasImagePlaceholder = content.includes('[__IMAGE_LOADING__]')
   const displayContent = hasImagePlaceholder
@@ -710,7 +797,7 @@ function MessageContent({ content, images, audioUrl }: { content: string; images
         </div>
       )}
       {audioUrl && (
-        <div className="message-audio">
+        <div className={`message-audio${audioAsVoice ? ' message-audio--voice' : ''}`}>
           <audio
             controls
             preload="metadata"

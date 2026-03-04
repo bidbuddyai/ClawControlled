@@ -2,7 +2,7 @@
 
 A cross-platform desktop and mobile client for OpenClaw AI assistant. Built with Electron, React, and TypeScript.
 
-> **Latest Release: [v1.4.0](https://github.com/jakeledwards/ClawControl/releases/tag/v1.4.0)** — Download the [DMG](https://github.com/jakeledwards/ClawControl/releases/download/v1.4.0/ClawControl-1.4.0-arm64.dmg) for macOS or the [ZIP](https://github.com/jakeledwards/ClawControl/releases/download/v1.4.0/ClawControl-1.4.0-arm64-mac.zip).
+> **Latest Release: [v1.5.0](https://github.com/jakeledwards/ClawControl/releases/tag/v1.5.0)** — Download the [Windows Installer](https://github.com/jakeledwards/ClawControl/releases/download/v1.5.0/ClawControl-Setup-1.5.0.exe) or [Portable EXE](https://github.com/jakeledwards/ClawControl/releases/download/v1.5.0/ClawControl-1.5.0.exe) for Windows.
 
 ## Features
 
@@ -27,6 +27,7 @@ A cross-platform desktop and mobile client for OpenClaw AI assistant. Built with
 - **Cron Jobs**: View, create, manually run, delete, and manage scheduled tasks with live status updates
 - **Dark/Light Theme**: Full theme support with system preference detection
 - **Mobile Gestures**: Swipe-to-delete sessions and long-press context menus on mobile
+- **Node Mode**: Parallel WebSocket connection for agent-invoked device commands with granular permissions
 - **Auto-Retry Connection**: Automatic reconnection with WebSocket health checks for half-open connection detection
 - **Cross-Platform**: Windows, macOS, Linux, iOS, and Android support via Electron and Capacitor
 
@@ -76,37 +77,34 @@ A cross-platform desktop and mobile client for OpenClaw AI assistant. Built with
 
 Pre-built binaries are available on the [Releases](https://github.com/jakeledwards/ClawControl/releases) page:
 
-- **ClawControl-1.4.0-arm64.dmg** — macOS installer (Apple Silicon)
-- **ClawControl-1.4.0-arm64-mac.zip** — macOS portable (Apple Silicon)
+- **ClawControl Setup 1.5.0.exe** — Windows installer (NSIS)
+- **ClawControl 1.5.0.exe** — Windows portable
 
-### What's New in v1.4.0
+### What's New in v1.5.0
 
 **Major Features**
-- Image send/receive support in chat — attach PNG, JPG, GIF, or WebP images with inline preview
-- Wake-word-triggered voice dictation with configurable trigger phrases and composer voice UI
-- Usage charts view — daily cost tracking, token/cost bar charts, and activity heatmaps
-- Pinned sessions — pin conversations to the top of the sidebar for quick access
-- Cron job creation UI — create scheduled tasks directly from the app
-- Linux packaging — AppImage and .deb targets
+- Node mode — parallel WebSocket connection for agent-invoked device commands
+- Node permissions dialog — granular approve/deny control over device command access
+- Multi-connection WebSocket pool for resilient parallel communication
+- Playwright end-to-end test suite with mock OpenClaw v3 WebSocket server
 
-**Security & Auth**
-- Removed insecure auth mode in favor of Ed25519 device identity pairing
-- Device name setting for identifying connections
+**Audio & Media**
+- TTS audio playback fixes — CSP-safe audio, MEDIA streaming, subagent delivery, and expired-URL fallback
+- Base64 data URL support and media route fixes for image rendering
+- Filter base64 image data from streaming and suppress agent state JSON in chat
 
-**Mobile & Platform**
-- iOS native WebSocket Origin header support
-- Open http(s)/mailto/tel links in OS handler on mobile
-- Fix mobile swipe cleanup
+**Android**
+- Foreground service keeps node-mode WebSocket alive in background
+- Fixed swipe-to-type lag, keyboard STT conflicts, and composition edge cases
+- Moved WebSocket connect/disconnect off main thread to prevent ANR
+- In-app review prompt
 
 **Fixes**
-- Fix iOS native WebSocket plugin registration
-- Use `https://` origin for Capacitor instead of `capacitor://`
-- Fix client ID for new server schema and add origin error help
-- Fix tool calls rendering in own bubble above message text
-- Fix iOS splash screen scale variant conflicts
-- Connection error surfacing in UI
+- Fixed mobile WebSocket Origin header to use http/https instead of capacitor://
+- Corrected cron job RPC params to match server schema (jobId + patch object)
+- Fixed image rendering, typing indicator avatars, and removed debug logging
 
-See the full [release notes](https://github.com/jakeledwards/ClawControl/releases/tag/v1.4.0) for details.
+See the full [release notes](https://github.com/jakeledwards/ClawControl/releases/tag/v1.5.0) for details.
 
 ## Installation (from source)
 
@@ -360,7 +358,7 @@ On connect, the server sends a `connect.challenge` event. The client responds wi
     minProtocol: 3,
     maxProtocol: 3,
     role: 'operator',
-    client: { id: 'openclaw-control-ui', displayName: 'ClawControl', version: '1.4.0' },
+    client: { id: 'openclaw-control-ui', displayName: 'ClawControl', version: '1.5.0' },
     auth: { deviceId: '...', signature: '...', timestamp: 1234567890 }
   }
 }

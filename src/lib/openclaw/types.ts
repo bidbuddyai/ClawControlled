@@ -8,6 +8,7 @@ export interface Message {
   thinking?: string
   images?: MessageImage[]
   audioUrl?: string
+  audioAsVoice?: boolean
 }
 
 export interface MessageImage {
