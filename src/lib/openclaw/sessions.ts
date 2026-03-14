@@ -56,7 +56,18 @@ export async function listSessions(call: RpcCaller): Promise<Session[]> {
         lastMessage: sanitizeLastMessage(s.lastMessagePreview || s.lastMessage),
         spawned,
         cron,
-        parentSessionId: s.parentSessionId || s.parentKey || s.spawnedBy || undefined
+        parentSessionId: s.parentSessionId || s.parentKey || s.spawnedBy || undefined,
+        // Session-level directives (v2026.3.12)
+        thinkingLevel: s.thinkingLevel || undefined,
+        fastMode: s.fastMode ?? undefined,
+        verboseLevel: s.verboseLevel || undefined,
+        reasoningLevel: s.reasoningLevel || undefined,
+        model: s.model || undefined,
+        modelProvider: s.modelProvider || undefined,
+        inputTokens: s.inputTokens ?? undefined,
+        outputTokens: s.outputTokens ?? undefined,
+        totalTokens: s.totalTokens ?? undefined,
+        contextTokens: s.contextTokens ?? undefined,
       }
     })
   } catch {
@@ -84,8 +95,25 @@ export async function deleteSession(call: RpcCaller, sessionId: string): Promise
   await call('sessions.delete', { key: sessionId })
 }
 
-export async function updateSession(call: RpcCaller, sessionId: string, updates: { label?: string }): Promise<void> {
-  await call('sessions.patch', { key: sessionId, ...updates })
+export interface SessionPatchParams {
+  label?: string | null
+  thinkingLevel?: string | null
+  fastMode?: boolean | null
+  verboseLevel?: string | null
+  reasoningLevel?: string | null
+  model?: string | null
+}
+
+export async function updateSession(call: RpcCaller, sessionId: string, updates: SessionPatchParams): Promise<void> {
+  const params: Record<string, unknown> = { key: sessionId }
+  for (const [k, v] of Object.entries(updates)) {
+    if (k in updates) params[k] = v
+  }
+  await call('sessions.patch', params)
+}
+
+export async function compactSession(call: RpcCaller, sessionId: string): Promise<void> {
+  await call('sessions.compact', { key: sessionId })
 }
 
 export async function spawnSession(call: RpcCaller, agentId: string, prompt?: string): Promise<Session> {

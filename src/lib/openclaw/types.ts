@@ -28,6 +28,18 @@ export interface Session {
   spawned?: boolean
   parentSessionId?: string
   cron?: boolean
+  // Session-level directives (v2026.3.12)
+  thinkingLevel?: string
+  fastMode?: boolean
+  verboseLevel?: string
+  reasoningLevel?: string
+  model?: string
+  modelProvider?: string
+  // Token usage
+  inputTokens?: number
+  outputTokens?: number
+  totalTokens?: number
+  contextTokens?: number
 }
 
 export interface Agent {

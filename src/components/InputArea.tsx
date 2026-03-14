@@ -1,7 +1,8 @@
-import { useState, useRef, useEffect, KeyboardEvent, ChangeEvent, CompositionEvent } from 'react'
+import { useState, useRef, useEffect, useCallback, KeyboardEvent, ChangeEvent, CompositionEvent } from 'react'
 import { SpeechRecognition } from '@capacitor-community/speech-recognition'
 import { useStore, selectIsStreaming } from '../store'
 import { getPlatform, isNativeMobile } from '../lib/platform'
+import { getSlashCommandCompletions, type SlashCommandDef } from '../lib/slash-commands'
 
 type BrowserSpeechRecognition = {
   lang: string
@@ -69,6 +70,8 @@ export function InputArea() {
   const [wakeEnabled, setWakeEnabled] = useState(false)
   const [wakeTriggers, setWakeTriggers] = useState<string[]>(DEFAULT_WAKE_TRIGGERS)
   const [attachedImages, setAttachedImages] = useState<PendingImageAttachment[]>([])
+  const [slashCompletions, setSlashCompletions] = useState<SlashCommandDef[]>([])
+  const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
   const nativeSpeechAvailableRef = useRef(false)
   const electronSpeechAvailableRef = useRef(false)
 
@@ -534,6 +537,25 @@ export function InputArea() {
     }
   }, [message])
 
+  // Slash command autocomplete
+  const updateSlashCompletions = useCallback((text: string) => {
+    if (text.startsWith('/') && !text.includes(' ') && !text.includes('\n')) {
+      const filter = text.slice(1)
+      const completions = getSlashCommandCompletions(filter)
+      setSlashCompletions(completions)
+      setSlashSelectedIndex(0)
+    } else {
+      setSlashCompletions([])
+    }
+  }, [])
+
+  const insertSlashCommand = useCallback((cmd: SlashCommandDef) => {
+    const text = `/${cmd.name}${cmd.args ? ' ' : ''}`
+    setMessage(text)
+    setSlashCompletions([])
+    textareaRef.current?.focus()
+  }, [])
+
   const handleSubmit = async () => {
     // Read from the DOM to catch any text still in the Android IME
     // composition buffer that hasn't been committed to React state yet.
@@ -541,6 +563,7 @@ export function InputArea() {
     if (!currentMessage.trim() && attachedImages.length === 0) return
 
     composingRef.current = false
+    setSlashCompletions([])
     const currentAttachments = attachedImages
     setMessage('')
     if (textareaRef.current) textareaRef.current.value = ''
@@ -549,6 +572,30 @@ export function InputArea() {
   }
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Slash command menu navigation
+    if (slashCompletions.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setSlashSelectedIndex(i => Math.min(i + 1, slashCompletions.length - 1))
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setSlashSelectedIndex(i => Math.max(i - 1, 0))
+        return
+      }
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+        e.preventDefault()
+        insertSlashCommand(slashCompletions[slashSelectedIndex])
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setSlashCompletions([])
+        return
+      }
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       if (e.nativeEvent.isComposing) {
         // On Android, Enter during English swipe composition should still send.
@@ -604,6 +651,7 @@ export function InputArea() {
     if (composingRef.current && platform !== 'android') return
     if (e.target.value.length <= maxLength) {
       setMessage(e.target.value)
+      updateSlashCompletions(e.target.value)
       if (voiceError) setVoiceError(null)
     }
   }
@@ -698,6 +746,24 @@ export function InputArea() {
                 ×
               </button>
             </div>
+          ))}
+        </div>
+      )}
+      {slashCompletions.length > 0 && (
+        <div className="slash-command-menu" role="listbox" aria-label="Slash commands">
+          {slashCompletions.map((cmd, i) => (
+            <button
+              key={cmd.name}
+              role="option"
+              aria-selected={i === slashSelectedIndex}
+              className={`slash-command-item${i === slashSelectedIndex ? ' selected' : ''}`}
+              onMouseDown={(e) => { e.preventDefault(); insertSlashCommand(cmd) }}
+              onMouseEnter={() => setSlashSelectedIndex(i)}
+            >
+              <span className="slash-command-name">/{cmd.name}</span>
+              {cmd.args && <span className="slash-command-args">{cmd.args}</span>}
+              <span className="slash-command-desc">{cmd.description}</span>
+            </button>
           ))}
         </div>
       )}

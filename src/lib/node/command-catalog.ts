@@ -102,10 +102,46 @@ export const COMMAND_CATALOG: CommandDefinition[] = [
 
   // Canvas
   {
-    command: 'canvas.display',
+    command: 'canvas.present',
     category: 'Canvas',
-    label: 'Display Canvas',
+    label: 'Present Canvas',
     description: 'Allow the AI agent to render interactive canvas content on this device',
+    platforms: [],
+    dangerous: false,
+    defaultEnabled: true
+  },
+  {
+    command: 'canvas.navigate',
+    category: 'Canvas',
+    label: 'Navigate Canvas',
+    description: 'Allow the AI agent to navigate the canvas to a URL',
+    platforms: [],
+    dangerous: false,
+    defaultEnabled: true
+  },
+  {
+    command: 'canvas.eval',
+    category: 'Canvas',
+    label: 'Eval in Canvas',
+    description: 'Allow the AI agent to execute JavaScript in the canvas',
+    platforms: [],
+    dangerous: false,
+    defaultEnabled: true
+  },
+  {
+    command: 'canvas.hide',
+    category: 'Canvas',
+    label: 'Hide Canvas',
+    description: 'Allow the AI agent to hide the canvas panel',
+    platforms: [],
+    dangerous: false,
+    defaultEnabled: true
+  },
+  {
+    command: 'canvas.snapshot',
+    category: 'Canvas',
+    label: 'Snapshot Canvas',
+    description: 'Allow the AI agent to capture a screenshot of the canvas',
     platforms: [],
     dangerous: false,
     defaultEnabled: true

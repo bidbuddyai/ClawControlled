@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { useStore } from '../store'
+import { useStore, selectSessionFastMode, selectSessionThinkingLevel } from '../store'
 
 export function TopBar() {
   const {
@@ -10,6 +10,8 @@ export function TopBar() {
     setRightPanelOpen,
     thinkingEnabled,
     setThinkingEnabled,
+    fastModeEnabled,
+    setFastModeEnabled,
     sessions,
     agents,
     currentSessionId,
@@ -21,7 +23,8 @@ export function TopBar() {
     canvasHostUrl,
     canvasVisible,
     toggleCanvas,
-    mainView
+    mainView,
+    patchCurrentSession
   } = useStore(useShallow(state => ({
     setSidebarOpen: state.setSidebarOpen,
     toggleTheme: state.toggleTheme,
@@ -29,6 +32,8 @@ export function TopBar() {
     setRightPanelOpen: state.setRightPanelOpen,
     thinkingEnabled: state.thinkingEnabled,
     setThinkingEnabled: state.setThinkingEnabled,
+    fastModeEnabled: state.fastModeEnabled,
+    setFastModeEnabled: state.setFastModeEnabled,
     sessions: state.sessions,
     agents: state.agents,
     currentSessionId: state.currentSessionId,
@@ -41,7 +46,11 @@ export function TopBar() {
     canvasVisible: state.canvasVisible,
     toggleCanvas: state.toggleCanvas,
     mainView: state.mainView,
+    patchCurrentSession: state.patchCurrentSession,
   })))
+
+  const sessionFastMode = useStore(selectSessionFastMode)
+  const sessionThinkingLevel = useStore(selectSessionThinkingLevel)
 
   const currentSession = sessions.find((s) => (s.key || s.id) === currentSessionId)
 
@@ -101,7 +110,7 @@ export function TopBar() {
       </div>
 
       <div className="top-bar-actions">
-        <div className="thinking-toggle" title="Thinking mode">
+        <div className="thinking-toggle" title={`Thinking mode${sessionThinkingLevel ? ` (${sessionThinkingLevel})` : ''}`}>
           <svg className="thinking-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="18" height="18">
             <path d="M12 2C8.13 2 5 5.13 5 9c0 2.38 1.19 4.47 3 5.74V17a1 1 0 001 1h6a1 1 0 001-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.87-3.13-7-7-7z" />
             <path d="M9 21h6M10 19v2M14 19v2" />
@@ -114,6 +123,24 @@ export function TopBar() {
               type="checkbox"
               checked={thinkingEnabled}
               onChange={(e) => setThinkingEnabled(e.target.checked)}
+            />
+            <span className="toggle-slider" />
+          </label>
+        </div>
+
+        <div className="thinking-toggle fast-toggle" title={`Fast mode${sessionFastMode ? ' (active)' : ''}`}>
+          <svg className="thinking-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="18" height="18">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+          </svg>
+          <span className="thinking-label">Fast</span>
+          <label className="toggle-switch">
+            <input
+              type="checkbox"
+              checked={fastModeEnabled || sessionFastMode}
+              onChange={(e) => {
+                setFastModeEnabled(e.target.checked)
+                patchCurrentSession({ fastMode: e.target.checked || null })
+              }}
             />
             <span className="toggle-slider" />
           </label>

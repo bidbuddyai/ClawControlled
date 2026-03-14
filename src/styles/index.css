@@ -1711,6 +1711,50 @@ a {
   color: var(--text-muted);
 }
 
+/* Pin button on message header */
+.pin-btn {
+  opacity: 0;
+  transition: opacity 0.15s;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px;
+  line-height: 1;
+}
+
+.message:hover .pin-btn,
+.pin-btn.pinned {
+  opacity: 1;
+}
+
+.pin-btn.pinned {
+  color: var(--accent-yellow, #f59e0b);
+}
+
+/* Pinned message indicator */
+.message.pinned .message-bubble {
+  border-left: 3px solid var(--accent-yellow, #f59e0b);
+}
+
+/* System messages (slash command results) */
+.message.system {
+  justify-content: center;
+}
+
+.message.system .message-content {
+  max-width: 600px;
+}
+
+.system-bubble {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-md);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
 .message-bubble {
   background: var(--bg-elevated);
   border: 1px solid var(--border-subtle);
@@ -2422,6 +2466,62 @@ a {
   padding: var(--space-md) var(--space-lg);
   background: var(--bg-primary);
   border-top: 1px solid var(--border-subtle);
+  position: relative;
+}
+
+/* Slash command autocomplete menu (v2026.3.12) */
+.slash-command-menu {
+  max-width: 900px;
+  margin: 0 auto var(--space-sm);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  max-height: 280px;
+  overflow-y: auto;
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.2);
+}
+
+.slash-command-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 0.875rem;
+  text-align: left;
+}
+
+.slash-command-item:hover,
+.slash-command-item.selected {
+  background: var(--bg-hover);
+}
+
+.slash-command-name {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--accent-cyan);
+  min-width: 80px;
+}
+
+.slash-command-args {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+}
+
+.slash-command-desc {
+  color: var(--text-secondary);
+  margin-left: auto;
+  font-size: 0.8rem;
+}
+
+/* Fast mode toggle */
+.fast-toggle:has(input:checked) .thinking-icon {
+  color: var(--accent-yellow, #f59e0b);
 }
 
 .image-attachments {

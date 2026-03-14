@@ -10,6 +10,9 @@ import { listClawHubSkills, searchClawHub, getClawHubSkill, getClawHubSkillVersi
 import * as Platform from '../lib/platform'
 import { getOrCreateDeviceIdentity, clearDeviceIdentity, getDeviceToken, saveDeviceToken, clearDeviceToken } from '../lib/device-identity'
 import type { DeviceIdentity } from '../lib/device-identity'
+import { parseSlashCommand } from '../lib/slash-commands'
+import { executeSlashCommand, type SlashCommandResult } from '../lib/slash-command-executor'
+import { PinnedMessages } from '../lib/pinned-messages'
 
 /** Matches internal system sessions like agent:main:main, agent:clarissa:cron, etc. */
 /** Matches internal system sessions: agent:X:main, agent:X:cron, agent:X:cron:*, agent:X:subagent:* */
@@ -222,6 +225,8 @@ interface AppState {
   compactingSession: string | null
   thinkingEnabled: boolean
   setThinkingEnabled: (enabled: boolean) => void
+  fastModeEnabled: boolean
+  setFastModeEnabled: (enabled: boolean) => void
   streamingDisabled: boolean
   setStreamingDisabled: (disabled: boolean) => void
   draftMessage: string
@@ -281,6 +286,15 @@ interface AppState {
   selectClawHubSkill: (skill: ClawHubSkill) => void
   installClawHubSkill: (slug: string) => Promise<void>
   fetchClawHubSkillDetail: (slug: string) => Promise<void>
+
+  // Slash Commands & Pinned Messages (v2026.3.12)
+  executeSlashCommand: (commandName: string, args: string) => Promise<SlashCommandResult | null>
+  pinnedMessageIds: Set<string>
+  togglePinMessage: (messageId: string) => void
+  isMessagePinned: (messageId: string) => boolean
+  getPinnedMessages: () => Message[]
+  compactCurrentSession: () => Promise<void>
+  patchCurrentSession: (patch: { thinkingLevel?: string | null; fastMode?: boolean | null; verboseLevel?: string | null; model?: string | null }) => Promise<void>
 
   // Subagents
   activeSubagents: SubagentInfo[]
@@ -1057,6 +1071,8 @@ export const useStore = create<AppState>()(
       compactingSession: null,
       thinkingEnabled: false,
       setThinkingEnabled: (enabled) => set({ thinkingEnabled: enabled }),
+      fastModeEnabled: false,
+      setFastModeEnabled: (enabled) => set({ fastModeEnabled: enabled }),
       streamingDisabled: false,
       setStreamingDisabled: (disabled) => set({ streamingDisabled: disabled }),
       draftMessage: '',
@@ -1077,6 +1093,61 @@ export const useStore = create<AppState>()(
         return { unreadCounts: rest }
       }),
       streamingSessionId: null,
+
+      // Slash Commands & Pinned Messages (v2026.3.12)
+      executeSlashCommand: async (commandName, args) => {
+        const { client, currentSessionId, sessions, agents, messages, currentAgentId } = get()
+        if (!client || !currentSessionId) return null
+        const result = await executeSlashCommand(client, currentSessionId, commandName, args, {
+          sessions, agents, messages, currentAgentId
+        })
+        // Handle side-effect actions
+        if (result.action === 'new-session') {
+          await get().createNewSession()
+        } else if (result.action === 'reset') {
+          get().clearMessages()
+          await get().fetchSessions()
+        } else if (result.action === 'stop') {
+          await get().abortChat()
+        } else if (result.action === 'clear') {
+          get().clearMessages()
+        } else if (result.action === 'refresh') {
+          await get().fetchSessions()
+        }
+        return result
+      },
+      pinnedMessageIds: new Set<string>(),
+      togglePinMessage: (messageId) => {
+        const { currentSessionId } = get()
+        if (!currentSessionId) return
+        const pinned = new PinnedMessages(currentSessionId)
+        pinned.toggle(messageId)
+        set({ pinnedMessageIds: new Set(pinned.ids) })
+      },
+      isMessagePinned: (messageId) => {
+        return get().pinnedMessageIds.has(messageId)
+      },
+      getPinnedMessages: () => {
+        const { messages, pinnedMessageIds } = get()
+        return messages.filter(m => pinnedMessageIds.has(m.id))
+      },
+      compactCurrentSession: async () => {
+        const { client, currentSessionId } = get()
+        if (!client || !currentSessionId) return
+        set({ compactingSession: currentSessionId })
+        try {
+          await client.call('sessions.compact', { key: currentSessionId })
+        } finally {
+          set({ compactingSession: null })
+        }
+        await get().fetchSessions()
+      },
+      patchCurrentSession: async (patch) => {
+        const { client, currentSessionId } = get()
+        if (!client || !currentSessionId) return
+        await client.call('sessions.patch', { key: currentSessionId, ...patch })
+        await get().fetchSessions()
+      },
 
       // Subagents
       activeSubagents: [],
@@ -1215,7 +1286,9 @@ export const useStore = create<AppState>()(
         const agentUpdate = session?.agentId && session.agentId !== get().currentAgentId
           ? { currentAgentId: session.agentId } : {}
 
-        set({ currentSessionId: sessionId, messages: cachedMessages, activeSubagents: [], unreadCounts: restCounts, mainView: 'chat', selectedSkill: null, selectedCronJob: null, selectedHook: null, selectedAgentDetail: null, selectedClawHubSkill: null, ...agentUpdate })
+        // Load pinned messages for the new session
+        const pinned = new PinnedMessages(sessionId)
+        set({ currentSessionId: sessionId, messages: cachedMessages, activeSubagents: [], unreadCounts: restCounts, mainView: 'chat', selectedSkill: null, selectedCronJob: null, selectedHook: null, selectedAgentDetail: null, selectedClawHubSkill: null, pinnedMessageIds: new Set(pinned.ids), ...agentUpdate })
         // Load fresh messages from server. Guard against stale loads when the
         // user rapidly switches sessions.
         client?.getSessionMessages(sessionId).then((historyResult) => {
@@ -2695,6 +2768,26 @@ export const useStore = create<AppState>()(
         const trimmed = content.trim()
         if (!client || (!trimmed && attachments.length === 0)) return
 
+        // Intercept slash commands (v2026.3.12)
+        if (attachments.length === 0) {
+          const parsed = parseSlashCommand(trimmed)
+          if (parsed && parsed.command.executeLocal) {
+            const result = await get().executeSlashCommand(parsed.command.name, parsed.args)
+            if (result) {
+              // Show result as a system-style message in chat
+              set((state) => ({
+                messages: [...state.messages, {
+                  id: `cmd-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                  role: 'system' as const,
+                  content: result.content,
+                  timestamp: new Date().toISOString()
+                }]
+              }))
+            }
+            return
+          }
+        }
+
         let sessionId = currentSessionId
         if (!sessionId) {
           const session = await client.createSession(currentAgentId || undefined)
@@ -2961,6 +3054,7 @@ export const useStore = create<AppState>()(
         sidebarCollapsed: state.sidebarCollapsed,
         collapsedSessionGroups: state.collapsedSessionGroups,
         thinkingEnabled: state.thinkingEnabled,
+        fastModeEnabled: state.fastModeEnabled,
         streamingDisabled: state.streamingDisabled,
         notificationsEnabled: state.notificationsEnabled,
         rightPanelWidth: state.rightPanelWidth,
@@ -2979,6 +3073,10 @@ export const selectHadStreamChunks = (state: AppState) => !!state.sessionHadChun
 export const selectActiveToolCalls = (state: AppState) => state.sessionToolCalls[state.currentSessionId || ''] || _emptyToolCalls
 export const selectStreamingThinking = (state: AppState) => state.streamingThinking[state.currentSessionId || ''] || ''
 export const selectIsCompacting = (state: AppState) => state.compactingSession === state.currentSessionId
+export const selectCurrentSession = (state: AppState) => state.sessions.find(s => (s.key || s.id) === state.currentSessionId)
+export const selectSessionFastMode = (state: AppState) => selectCurrentSession(state)?.fastMode ?? false
+export const selectSessionThinkingLevel = (state: AppState) => selectCurrentSession(state)?.thinkingLevel ?? null
+export const selectSessionModel = (state: AppState) => selectCurrentSession(state)?.model ?? null
 
 // Vite HMR: disconnect stale WebSocket connections when modules are hot-replaced.
 // Without this, old module versions keep processing events, causing duplicate streams.

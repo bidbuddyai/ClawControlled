@@ -34,8 +34,12 @@ export async function dispatch(request: InvokeRequest): Promise<InvokeResult> {
         return await handleLocationGet(params as { maxAgeMs?: number; desiredAccuracy?: 'high' | 'low'; timeoutMs?: number })
       case 'camera.snap':
         return await handleCameraSnap(params as { facing?: 'front' | 'rear'; maxWidth?: number; quality?: number })
-      case 'canvas.display':
-        // Canvas display is handled by the iframe panel in the renderer.
+      case 'canvas.present':
+      case 'canvas.navigate':
+      case 'canvas.eval':
+      case 'canvas.hide':
+      case 'canvas.snapshot':
+        // Canvas commands are handled by the iframe panel in the renderer.
         // We acknowledge the invoke so the server knows this node supports it.
         return { ok: true, payload: { supported: true } }
       case 'photos.latest':

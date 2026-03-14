@@ -463,7 +463,7 @@ export class OpenClawClient {
   }
 
   // RPC methods
-  private async call<T>(method: string, params?: any, options?: { timeoutMs?: number }): Promise<T> {
+  private async _call<T>(method: string, params?: any, options?: { timeoutMs?: number }): Promise<T> {
     if (!this.ws || this.ws.readyState !== this.ws.OPEN) {
       throw new Error('Not connected to OpenClaw')
     }
@@ -1037,11 +1037,17 @@ export class OpenClawClient {
     }
   }
 
+  /** Public RPC call — used by slash command executor and other callers that
+   *  need direct access to gateway RPC methods. */
+  async call<T = any>(method: string, params?: any, options?: { timeoutMs?: number }): Promise<T> {
+    return this._call(method, params, options)
+  }
+
   // Domain API methods - delegated to modules
 
   // Sessions
   async listSessions(): Promise<Session[]> {
-    return sessionsApi.listSessions(this.call.bind(this))
+    return sessionsApi.listSessions(this._call.bind(this))
   }
 
   async createSession(agentId?: string): Promise<Session> {
@@ -1049,20 +1055,24 @@ export class OpenClawClient {
   }
 
   async deleteSession(sessionId: string): Promise<void> {
-    return sessionsApi.deleteSession(this.call.bind(this), sessionId)
+    return sessionsApi.deleteSession(this._call.bind(this), sessionId)
   }
 
-  async updateSession(sessionId: string, updates: { label?: string }): Promise<void> {
-    return sessionsApi.updateSession(this.call.bind(this), sessionId, updates)
+  async updateSession(sessionId: string, updates: sessionsApi.SessionPatchParams): Promise<void> {
+    return sessionsApi.updateSession(this._call.bind(this), sessionId, updates)
+  }
+
+  async compactSession(sessionId: string): Promise<void> {
+    return sessionsApi.compactSession(this._call.bind(this), sessionId)
   }
 
   async spawnSession(agentId: string, prompt?: string): Promise<Session> {
-    return sessionsApi.spawnSession(this.call.bind(this), agentId, prompt)
+    return sessionsApi.spawnSession(this._call.bind(this), agentId, prompt)
   }
 
   // Chat
   async getSessionMessages(sessionId: string): Promise<chatApi.ChatHistoryResult> {
-    return chatApi.getSessionMessages(this.call.bind(this), sessionId, this.url)
+    return chatApi.getSessionMessages(this._call.bind(this), sessionId, this.url)
   }
 
   async sendMessage(params: {
@@ -1072,138 +1082,138 @@ export class OpenClawClient {
     thinking?: boolean
     attachments?: chatApi.ChatAttachmentInput[]
   }): Promise<{ sessionKey?: string }> {
-    return chatApi.sendMessage(this.call.bind(this), params)
+    return chatApi.sendMessage(this._call.bind(this), params)
   }
 
   async abortChat(sessionId: string): Promise<void> {
-    return chatApi.abortChat(this.call.bind(this), sessionId)
+    return chatApi.abortChat(this._call.bind(this), sessionId)
   }
 
   // Agents
   async listAgents(): Promise<Agent[]> {
-    return agentsApi.listAgents(this.call.bind(this), this.url)
+    return agentsApi.listAgents(this._call.bind(this), this.url)
   }
 
   async getAgentIdentity(agentId: string): Promise<{ name?: string; emoji?: string; avatar?: string; avatarUrl?: string } | null> {
-    return agentsApi.getAgentIdentity(this.call.bind(this), agentId)
+    return agentsApi.getAgentIdentity(this._call.bind(this), agentId)
   }
 
   async getAgentFiles(agentId: string): Promise<{ workspace: string; files: Array<{ name: string; path: string; missing: boolean; size?: number }> } | null> {
-    return agentsApi.getAgentFiles(this.call.bind(this), agentId)
+    return agentsApi.getAgentFiles(this._call.bind(this), agentId)
   }
 
   async getAgentFile(agentId: string, fileName: string): Promise<{ content?: string; missing: boolean } | null> {
-    return agentsApi.getAgentFile(this.call.bind(this), agentId, fileName)
+    return agentsApi.getAgentFile(this._call.bind(this), agentId, fileName)
   }
 
   async setAgentFile(agentId: string, fileName: string, content: string): Promise<boolean> {
-    return agentsApi.setAgentFile(this.call.bind(this), agentId, fileName, content)
+    return agentsApi.setAgentFile(this._call.bind(this), agentId, fileName, content)
   }
 
   async createAgent(params: agentsApi.CreateAgentParams): Promise<agentsApi.CreateAgentResult> {
-    return agentsApi.createAgent(this.call.bind(this), params)
+    return agentsApi.createAgent(this._call.bind(this), params)
   }
 
   async deleteAgent(agentId: string): Promise<agentsApi.DeleteAgentResult> {
-    return agentsApi.deleteAgent(this.call.bind(this), agentId)
+    return agentsApi.deleteAgent(this._call.bind(this), agentId)
   }
 
   // Skills
   async listSkills(): Promise<Skill[]> {
-    return skillsApi.listSkills(this.call.bind(this))
+    return skillsApi.listSkills(this._call.bind(this))
   }
 
   async toggleSkill(skillKey: string, enabled: boolean): Promise<void> {
-    return skillsApi.toggleSkill(this.call.bind(this), skillKey, enabled)
+    return skillsApi.toggleSkill(this._call.bind(this), skillKey, enabled)
   }
 
   async installSkill(skillName: string, installId: string): Promise<void> {
-    return skillsApi.installSkill(this.call.bind(this), skillName, installId)
+    return skillsApi.installSkill(this._call.bind(this), skillName, installId)
   }
 
   async installHubSkill(slug: string, sessionKey?: string): Promise<void> {
-    return skillsApi.installHubSkill(this.call.bind(this), slug, sessionKey)
+    return skillsApi.installHubSkill(this._call.bind(this), slug, sessionKey)
   }
 
   // Cron Jobs
   async listCronJobs(): Promise<CronJob[]> {
-    return cronApi.listCronJobs(this.call.bind(this))
+    return cronApi.listCronJobs(this._call.bind(this))
   }
 
   async toggleCronJob(cronId: string, enabled: boolean): Promise<void> {
-    return cronApi.toggleCronJob(this.call.bind(this), cronId, enabled)
+    return cronApi.toggleCronJob(this._call.bind(this), cronId, enabled)
   }
 
   async getCronJobDetails(cronId: string): Promise<CronJob | null> {
-    return cronApi.getCronJobDetails(this.call.bind(this), cronId)
+    return cronApi.getCronJobDetails(this._call.bind(this), cronId)
   }
 
   // Config
   async getServerConfig(): Promise<{ config: any; hash: string }> {
-    return configApi.getServerConfig(this.call.bind(this))
+    return configApi.getServerConfig(this._call.bind(this))
   }
 
   async patchServerConfig(patch: object, baseHash: string): Promise<void> {
-    return configApi.patchServerConfig(this.call.bind(this), patch, baseHash)
+    return configApi.patchServerConfig(this._call.bind(this), patch, baseHash)
   }
 
   // Cron Jobs (Extended)
   async addCronJob(params: any): Promise<void> {
-    return cronApi.addCronJob(this.call.bind(this), params)
+    return cronApi.addCronJob(this._call.bind(this), params)
   }
   async updateCronJob(id: string, params: any): Promise<void> {
-    return cronApi.updateCronJob(this.call.bind(this), id, params)
+    return cronApi.updateCronJob(this._call.bind(this), id, params)
   }
   async removeCronJob(id: string): Promise<void> {
-    return cronApi.removeCronJob(this.call.bind(this), id)
+    return cronApi.removeCronJob(this._call.bind(this), id)
   }
   async runCronJob(id: string): Promise<void> {
-    return cronApi.runCronJob(this.call.bind(this), id)
+    return cronApi.runCronJob(this._call.bind(this), id)
   }
 
   // Hooks (config-based)
   async fetchHooks(): Promise<hooksApi.HooksState> {
-    return hooksApi.fetchHooks(this.call.bind(this))
+    return hooksApi.fetchHooks(this._call.bind(this))
   }
 
   async toggleHookEnabled(hookId: string, enabled: boolean): Promise<void> {
-    return hooksApi.toggleHookEnabled(this.call.bind(this), hookId, enabled)
+    return hooksApi.toggleHookEnabled(this._call.bind(this), hookId, enabled)
   }
 
   async toggleInternalHooksEnabled(enabled: boolean): Promise<void> {
-    return hooksApi.toggleInternalHooksEnabled(this.call.bind(this), enabled)
+    return hooksApi.toggleInternalHooksEnabled(this._call.bind(this), enabled)
   }
 
   async updateHookEnv(hookId: string, env: Record<string, string>): Promise<void> {
-    return hooksApi.updateHookEnv(this.call.bind(this), hookId, env)
+    return hooksApi.updateHookEnv(this._call.bind(this), hookId, env)
   }
 
   // Features
-  async getUsageStatus(): Promise<any> { return featuresApi.getUsageStatus(this.call.bind(this)) }
-  async getUsageCost(): Promise<any> { return featuresApi.getUsageCost(this.call.bind(this)) }
-  async getSessionsUsage(params?: { days?: number; limit?: number }): Promise<any> { return featuresApi.getSessionsUsage(this.call.bind(this), params) }
+  async getUsageStatus(): Promise<any> { return featuresApi.getUsageStatus(this._call.bind(this)) }
+  async getUsageCost(): Promise<any> { return featuresApi.getUsageCost(this._call.bind(this)) }
+  async getSessionsUsage(params?: { days?: number; limit?: number }): Promise<any> { return featuresApi.getSessionsUsage(this._call.bind(this), params) }
 
-  async getTtsStatus(): Promise<any> { return featuresApi.getTtsStatus(this.call.bind(this)) }
-  async getTtsProviders(): Promise<any> { return featuresApi.getTtsProviders(this.call.bind(this)) }
-  async setTtsEnable(enable: boolean): Promise<any> { return featuresApi.setTtsEnable(this.call.bind(this), enable) }
-  async setTtsProvider(provider: string): Promise<any> { return featuresApi.setTtsProvider(this.call.bind(this), provider) }
+  async getTtsStatus(): Promise<any> { return featuresApi.getTtsStatus(this._call.bind(this)) }
+  async getTtsProviders(): Promise<any> { return featuresApi.getTtsProviders(this._call.bind(this)) }
+  async setTtsEnable(enable: boolean): Promise<any> { return featuresApi.setTtsEnable(this._call.bind(this), enable) }
+  async setTtsProvider(provider: string): Promise<any> { return featuresApi.setTtsProvider(this._call.bind(this), provider) }
 
-  async getVoicewake(): Promise<any> { return featuresApi.getVoicewake(this.call.bind(this)) }
-  async setVoicewake(params: any): Promise<any> { return featuresApi.setVoicewake(this.call.bind(this), params) }
+  async getVoicewake(): Promise<any> { return featuresApi.getVoicewake(this._call.bind(this)) }
+  async setVoicewake(params: any): Promise<any> { return featuresApi.setVoicewake(this._call.bind(this), params) }
 
   // Nodes
-  async listNodes(): Promise<Node[]> { return nodesApi.listNodes(this.call.bind(this)) }
-  async getExecApprovals(): Promise<nodesApi.ExecApprovalsResponse | null> { return nodesApi.getExecApprovals(this.call.bind(this)) }
-  async getNodeExecApprovals(nodeId: string): Promise<nodesApi.ExecApprovalsResponse | null> { return nodesApi.getNodeExecApprovals(this.call.bind(this), nodeId) }
-  async setExecApprovals(file: nodesApi.ExecApprovalsFile, baseHash: string): Promise<void> { return nodesApi.setExecApprovals(this.call.bind(this), file, baseHash) }
-  async setNodeExecApprovals(nodeId: string, file: nodesApi.ExecApprovalsFile, baseHash: string): Promise<void> { return nodesApi.setNodeExecApprovals(this.call.bind(this), nodeId, file, baseHash) }
-  async listDevicePairings(): Promise<nodesApi.DevicePairListResponse | null> { return nodesApi.listDevicePairings(this.call.bind(this)) }
-  async approveDevicePairing(requestId: string): Promise<void> { return nodesApi.approveDevicePairing(this.call.bind(this), requestId) }
-  async rejectDevicePairing(requestId: string): Promise<void> { return nodesApi.rejectDevicePairing(this.call.bind(this), requestId) }
-  async removeDevice(deviceId: string): Promise<void> { return nodesApi.removeDevice(this.call.bind(this), deviceId) }
-  async rotateDeviceToken(deviceId: string, role: string, scopes?: string[]): Promise<void> { return nodesApi.rotateDeviceToken(this.call.bind(this), deviceId, role, scopes) }
-  async revokeDeviceToken(deviceId: string, role: string): Promise<void> { return nodesApi.revokeDeviceToken(this.call.bind(this), deviceId, role) }
-  async resolveExecApproval(approvalId: string, decision: nodesApi.ExecApprovalDecision): Promise<void> { return nodesApi.resolveExecApproval(this.call.bind(this), approvalId, decision) }
+  async listNodes(): Promise<Node[]> { return nodesApi.listNodes(this._call.bind(this)) }
+  async getExecApprovals(): Promise<nodesApi.ExecApprovalsResponse | null> { return nodesApi.getExecApprovals(this._call.bind(this)) }
+  async getNodeExecApprovals(nodeId: string): Promise<nodesApi.ExecApprovalsResponse | null> { return nodesApi.getNodeExecApprovals(this._call.bind(this), nodeId) }
+  async setExecApprovals(file: nodesApi.ExecApprovalsFile, baseHash: string): Promise<void> { return nodesApi.setExecApprovals(this._call.bind(this), file, baseHash) }
+  async setNodeExecApprovals(nodeId: string, file: nodesApi.ExecApprovalsFile, baseHash: string): Promise<void> { return nodesApi.setNodeExecApprovals(this._call.bind(this), nodeId, file, baseHash) }
+  async listDevicePairings(): Promise<nodesApi.DevicePairListResponse | null> { return nodesApi.listDevicePairings(this._call.bind(this)) }
+  async approveDevicePairing(requestId: string): Promise<void> { return nodesApi.approveDevicePairing(this._call.bind(this), requestId) }
+  async rejectDevicePairing(requestId: string): Promise<void> { return nodesApi.rejectDevicePairing(this._call.bind(this), requestId) }
+  async removeDevice(deviceId: string): Promise<void> { return nodesApi.removeDevice(this._call.bind(this), deviceId) }
+  async rotateDeviceToken(deviceId: string, role: string, scopes?: string[]): Promise<void> { return nodesApi.rotateDeviceToken(this._call.bind(this), deviceId, role, scopes) }
+  async revokeDeviceToken(deviceId: string, role: string): Promise<void> { return nodesApi.revokeDeviceToken(this._call.bind(this), deviceId, role) }
+  async resolveExecApproval(approvalId: string, decision: nodesApi.ExecApprovalDecision): Promise<void> { return nodesApi.resolveExecApproval(this._call.bind(this), approvalId, decision) }
 
   /** Lightweight liveness check — returns true if the server tick is recent (no RPC needed). */
   isAlive(): boolean {

@@ -381,10 +381,26 @@ const MessageBubble = memo(function MessageBubble({
   streamingThinking?: string
 }) {
   const isUser = message.role === 'user'
+  const isSystem = message.role === 'system'
   const time = format(new Date(message.timestamp), 'h:mm a')
+  const isPinned = useStore(state => state.isMessagePinned(message.id))
+  const togglePin = useStore(state => state.togglePinMessage)
+
+  // System messages (slash command results) render as a centered info block
+  if (isSystem) {
+    return (
+      <div className="message system" data-testid={`message-${message.id}`}>
+        <div className="message-content">
+          <div className="message-bubble system-bubble">
+            <MessageContent content={message.content} />
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <div className={`message ${isUser ? 'user' : 'agent'}`} data-testid={`message-${message.id}`}>
+    <div className={`message ${isUser ? 'user' : 'agent'}${isPinned ? ' pinned' : ''}`} data-testid={`message-${message.id}`}>
       {!isUser && (
         <div className="message-avatar">
           {agentAvatar ? (
@@ -410,6 +426,16 @@ const MessageBubble = memo(function MessageBubble({
               <span className="message-time">{time}</span>
             </>
           )}
+          <button
+            className={`pin-btn${isPinned ? ' pinned' : ''}`}
+            onClick={() => togglePin(message.id)}
+            title={isPinned ? 'Unpin message' : 'Pin message'}
+            aria-label={isPinned ? 'Unpin message' : 'Pin message'}
+          >
+            <svg viewBox="0 0 24 24" fill={isPinned ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" width="14" height="14">
+              <path d="M12 2l3 7h7l-5.5 4.5L18 21l-6-4-6 4 1.5-7.5L2 9h7l3-7z" />
+            </svg>
+          </button>
         </div>
         <div className="message-bubble">
           {(message.thinking || streamingThinking) && (
