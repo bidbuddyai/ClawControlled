@@ -111,7 +111,7 @@ export function CreateCronJobView() {
     }
 
     return (
-        <div className="create-agent-view">
+        <div className="detail-view">
             <div className="detail-header">
                 <button className="detail-back" onClick={closeDetailView}>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -127,7 +127,7 @@ export function CreateCronJobView() {
                 </div>
             </div>
 
-            <div className="create-agent-content">
+            <div className="detail-content">
                 {error && <div className="settings-error">{error}</div>}
 
                 {/* Basic Info */}
@@ -420,18 +420,19 @@ export function CreateCronJobView() {
                     />
                 </div>
 
-                <div className="create-agent-actions">
-                    <button className="settings-button secondary" onClick={closeDetailView}>
-                        Cancel
-                    </button>
-                    <button
-                        className="settings-button primary"
-                        onClick={handleCreate}
-                        disabled={loading || !name.trim() || !payloadText.trim()}
-                    >
-                        {loading ? 'Creating...' : 'Create Cron Job'}
-                    </button>
-                </div>
+            </div>
+
+            <div className="detail-footer">
+                <button className="settings-button secondary" onClick={closeDetailView}>
+                    Cancel
+                </button>
+                <button
+                    className="settings-button primary"
+                    onClick={handleCreate}
+                    disabled={loading || !name.trim() || !payloadText.trim()}
+                >
+                    {loading ? 'Creating...' : 'Create Cron Job'}
+                </button>
             </div>
         </div>
     )

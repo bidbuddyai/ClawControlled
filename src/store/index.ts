@@ -1194,9 +1194,12 @@ export const useStore = create<AppState>()(
               set((state) => {
                 // Finalize current streaming message so subagent blocks render inline
                 const { messages: finalizedMsgs, finalizedId } = finalizeStreamingMessage(state.messages)
+                // Fall back to last message of any role so subagents anchor
+                // inline rather than trailing at the bottom of chat.
+                const anchorId = finalizedId || finalizedMsgs[finalizedMsgs.length - 1]?.id
                 const tagged = newSubagents.map(sa => ({
                   ...sa,
-                  afterMessageId: finalizedId || undefined
+                  afterMessageId: anchorId || undefined
                 }))
                 return {
                   messages: finalizedMsgs,
@@ -2500,6 +2503,10 @@ export const useStore = create<AppState>()(
               if (state.activeSubagents.some(a => a.sessionKey === sessionKey)) return state
 
               const { messages: finalizedMsgs, finalizedId } = finalizeStreamingMessage(state.messages)
+              // Anchor to the finalized assistant message, or fall back to the
+              // last message of any role so subagents stay inline rather than
+              // trailing at the bottom of chat.
+              const anchorId = finalizedId || finalizedMsgs[finalizedMsgs.length - 1]?.id
               return {
                 messages: finalizedMsgs,
                 activeSubagents: [...state.activeSubagents, {
@@ -2508,7 +2515,7 @@ export const useStore = create<AppState>()(
                   label: sessionKey,
                   status: 'running' as const,
                   detectedAt: Date.now(),
-                  afterMessageId: finalizedId || undefined
+                  afterMessageId: anchorId || undefined
                 }]
               }
             })

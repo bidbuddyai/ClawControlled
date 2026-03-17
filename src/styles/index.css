@@ -3772,6 +3772,16 @@ a {
   padding: var(--space-lg);
 }
 
+.detail-footer {
+  display: flex;
+  gap: var(--space-md);
+  justify-content: flex-end;
+  padding: var(--space-md) var(--space-lg);
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
+  flex-shrink: 0;
+}
+
 .markdown-content {
   max-width: 800px;
   margin: 0 auto;

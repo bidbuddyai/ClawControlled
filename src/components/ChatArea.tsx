@@ -50,10 +50,15 @@ export function ChatArea() {
   const activeToolCalls = useStore(selectActiveToolCalls)
   const streamingThinking = useStore(selectStreamingThinking)
   const isCompacting = useStore(selectIsCompacting)
-  const messages = useMemo(
-    () => allMessages.filter((m) => m.role !== 'system'),
-    [allMessages]
-  )
+  const messages = useMemo(() => {
+    const seen = new Set<string>()
+    return allMessages.filter((m) => {
+      if (m.role === 'system') return false
+      if (seen.has(m.id)) return false
+      seen.add(m.id)
+      return true
+    })
+  }, [allMessages])
   const chatEndRef = useRef<HTMLDivElement>(null)
   const chatContainerRef = useRef<HTMLDivElement>(null)
   // Track session switches so we can instant-scroll when history loads
