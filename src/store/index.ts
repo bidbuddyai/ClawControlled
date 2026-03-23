@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { OpenClawClient, Message, Session, Agent, Skill, CronJob, Hook, HooksConfig, AgentFile, CreateAgentParams, buildIdentityContent, stripBase64FromStreaming } from '../lib/openclaw'
+import { OpenClawClient, Message, Session, Agent, Skill, CronJob, Hook, HooksConfig, AgentFile, CreateAgentParams, buildIdentityContent, stripBase64FromStreaming, generateUUID } from '../lib/openclaw'
 import { NodeClient } from '../lib/node'
 import { getDefaultPermissions } from '../lib/node/command-catalog'
 import { getCommands } from '../lib/node/capability-registry'
@@ -494,7 +494,7 @@ export const useStore = create<AppState>()(
       serverProfiles: [],
       activeProfileId: null,
       addServerProfile: (profileData) => {
-        const id = crypto.randomUUID()
+        const id = generateUUID()
         const profile: ServerProfile = { id, ...profileData }
         set((state) => ({
           serverProfiles: [...state.serverProfiles, profile]
@@ -1861,7 +1861,7 @@ export const useStore = create<AppState>()(
         // Migration: create a default server profile from legacy single-server state
         const { serverProfiles, serverUrl: legacyUrl, gatewayToken: currentToken, authMode: currentMode, deviceName: currentName, pinnedSessionKeys, collapsedSessionGroups } = get()
         if (serverProfiles.length === 0 && legacyUrl) {
-          const id = crypto.randomUUID()
+          const id = generateUUID()
           const profile: ServerProfile = {
             id,
             name: 'Server 1',
@@ -2162,6 +2162,28 @@ export const useStore = create<AppState>()(
                   }).catch(() => { })
                 }
               }
+            }
+
+            // Reload session list and current chat history after reconnect
+            // so the UI reflects any messages that arrived while disconnected.
+            get().fetchSessions().catch(() => { })
+            const activeSession = get().currentSessionId
+            if (activeSession && client) {
+              client.getSessionMessages(activeSession).then((historyResult) => {
+                const { messages: loadedMessages, toolCalls: historyToolCalls } = historyResult
+                _cacheSet(activeSession, loadedMessages)
+                set((state) => {
+                  if (state.currentSessionId !== activeSession) return state
+                  const streamingMsgs = state.messages.filter(m => m.id.startsWith('streaming-'))
+                  const mergedToolCalls = historyToolCalls.length > 0
+                    ? { ...state.sessionToolCalls, [activeSession]: historyToolCalls.map(tc => ({ ...tc, startedAt: 0 })) }
+                    : state.sessionToolCalls
+                  return {
+                    messages: streamingMsgs.length > 0 ? [...loadedMessages, ...streamingMsgs] : loadedMessages,
+                    sessionToolCalls: mergedToolCalls
+                  }
+                })
+              }).catch(() => { })
             }
           })
 

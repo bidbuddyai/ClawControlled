@@ -1,7 +1,7 @@
 // OpenClaw Client - Chat API Methods
 
 import type { Message, RpcCaller } from './types'
-import { stripAnsi, stripModelSpecialTokens, stripSystemNotifications, stripConversationMetadata, extractImagesFromContent, parseMediaTokens } from './utils'
+import { stripAnsi, stripModelSpecialTokens, stripSystemNotifications, stripConversationMetadata, extractImagesFromContent, parseMediaTokens, generateUUID } from './utils'
 
 export interface HistoryToolCall {
   toolCallId: string
@@ -83,7 +83,7 @@ export async function getSessionMessages(call: RpcCaller, sessionId: string, gat
 
           // Extract tool_use blocks as tool call cards, anchored to this message
           for (const c of rawContent) {
-            if (c.type === 'toolCall') {
+            if (c.type === 'toolCall' || c.type === 'tool_use') {
               const tcId = c.id || `htc-${Math.random().toString(36).slice(2, 8)}`
               const name = c.name || 'tool'
               let args: Record<string, unknown> | undefined
@@ -107,7 +107,7 @@ export async function getSessionMessages(call: RpcCaller, sessionId: string, gat
 
           // Extract tool_result blocks and merge into existing tool calls
           for (const c of rawContent) {
-            if (c.type === 'toolResult') {
+            if (c.type === 'toolResult' || c.type === 'tool_result') {
               const tcId = c.toolCallId || c.tool_use_id || c.id
               let resultText: string | undefined
               if (typeof c.content === 'string') {
@@ -143,7 +143,7 @@ export async function getSessionMessages(call: RpcCaller, sessionId: string, gat
               .map((c: any) => {
                 if (typeof c.text === 'string') return c.text
                 // tool_result blocks can have content as string or array
-                if (c.type === 'toolResult') {
+                if (c.type === 'toolResult' || c.type === 'tool_result') {
                   if (typeof c.content === 'string') return c.content
                   if (Array.isArray(c.content)) {
                     return c.content
@@ -188,7 +188,7 @@ export async function getSessionMessages(call: RpcCaller, sessionId: string, gat
 
         // Skip toolResult protocol messages - these are internal agent steps,
         // not user-facing chat. Tool output is shown via tool call blocks instead.
-        if (role === 'toolResult') return null
+        if (role === 'toolResult' || role === 'tool_result') return null
 
         // Strip system notification lines (exec status, etc.) from content
         content = stripSystemNotifications(content).trim()
@@ -305,7 +305,7 @@ export async function sendMessage(call: RpcCaller, params: {
   thinking?: boolean
   attachments?: ChatAttachmentInput[]
 }): Promise<{ sessionKey?: string }> {
-  const idempotencyKey = crypto.randomUUID()
+  const idempotencyKey = generateUUID()
   const payload: Record<string, unknown> = {
     message: params.content,
     idempotencyKey

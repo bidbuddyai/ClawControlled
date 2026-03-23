@@ -1,7 +1,7 @@
 // OpenClaw Client - Session API Methods
 
 import type { Session, RpcCaller } from './types'
-import { resolveSessionKey, toIsoTimestamp, isNoiseContent, stripAnsi } from './utils'
+import { resolveSessionKey, toIsoTimestamp, isNoiseContent, stripAnsi, generateUUID } from './utils'
 
 // Extract agentId from session key format "agent:{agentId}:{uuid}"
 function extractAgentIdFromKey(key?: string): string | undefined {
@@ -79,7 +79,7 @@ export async function createSession(agentId?: string): Promise<Session> {
   // In v3, sessions are created lazily on first message.
   // Generate a proper session key in the server's expected format.
   const agent = agentId || 'main'
-  const uniqueId = crypto.randomUUID()
+  const uniqueId = generateUUID()
   const key = `agent:${agent}:${uniqueId}`
   return {
     id: key,
