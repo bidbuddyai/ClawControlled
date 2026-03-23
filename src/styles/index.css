@@ -6922,6 +6922,57 @@ body.capacitor-mobile .context-menu-divider {
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
+/* --- BTW Side Result Overlay (v2026.3.22) --- */
+.side-result-overlay {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(90%, 560px);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  z-index: 20;
+  animation: toastIn 0.3s ease;
+}
+.side-result-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.side-result-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--accent-cyan);
+  opacity: 0.85;
+}
+.side-result-dismiss {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+}
+.side-result-dismiss:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+.side-result-body {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
 /* --- Chat Search Bar --- */
 .chat-search-bar {
   position: absolute;

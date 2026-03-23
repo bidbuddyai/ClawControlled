@@ -808,6 +808,22 @@ export class OpenClawClient {
                 if (typeof u === 'string' && u) images.push({ url: u, alt: 'Media' })
               }
             }
+            // Extract details.media (v2026.3.22 media reply migration)
+            if (payload.details?.media) {
+              const dm = payload.details.media
+              if (Array.isArray(dm)) {
+                for (const m of dm) {
+                  if (m.type === 'image' && typeof m.url === 'string') {
+                    images.push({ url: m.url, mimeType: m.mimeType, alt: m.alt || 'Media' })
+                  } else if (m.type === 'audio' && typeof m.url === 'string' && !audioUrl) {
+                    audioUrl = m.url
+                  }
+                }
+              } else if (typeof dm.url === 'string') {
+                if (dm.type === 'audio') { if (!audioUrl) audioUrl = dm.url }
+                else images.push({ url: dm.url, mimeType: dm.mimeType, alt: dm.alt || 'Media' })
+              }
+            }
             // Extract audioAsVoice flag from sendPayload
             const audioAsVoice = payload.audioAsVoice === true
             // Deduplicate images by URL
@@ -976,7 +992,7 @@ export class OpenClawClient {
             }
 
             // Also extract mediaUrl/mediaUrls from the lifecycle event payload itself
-            const lifecycleImages: Array<{ url: string; alt?: string }> = []
+            const lifecycleImages: Array<{ url: string; mimeType?: string; alt?: string }> = []
             if (typeof payload.mediaUrl === 'string' && payload.mediaUrl) {
               lifecycleImages.push({ url: payload.mediaUrl, alt: 'Media' })
             }
@@ -985,13 +1001,31 @@ export class OpenClawClient {
                 if (typeof u === 'string' && u) lifecycleImages.push({ url: u, alt: 'Media' })
               }
             }
-            if (lifecycleImages.length > 0) {
+            // Extract details.media (v2026.3.22 media reply migration)
+            let lifecycleAudioUrl: string | undefined
+            if (payload.details?.media) {
+              const dm = payload.details.media
+              if (Array.isArray(dm)) {
+                for (const m of dm) {
+                  if (m.type === 'image' && typeof m.url === 'string') {
+                    lifecycleImages.push({ url: m.url, mimeType: m.mimeType, alt: m.alt || 'Media' })
+                  } else if (m.type === 'audio' && typeof m.url === 'string' && !lifecycleAudioUrl) {
+                    lifecycleAudioUrl = m.url
+                  }
+                }
+              } else if (typeof dm.url === 'string') {
+                if (dm.type === 'audio') lifecycleAudioUrl = dm.url
+                else lifecycleImages.push({ url: dm.url, mimeType: dm.mimeType, alt: dm.alt || 'Media' })
+              }
+            }
+            if (lifecycleImages.length > 0 || lifecycleAudioUrl) {
               this.emit('message', {
                 id: `media-lc-${Date.now()}`,
                 role: 'assistant',
                 content: '',
                 timestamp: new Date().toISOString(),
-                images: lifecycleImages,
+                images: lifecycleImages.length > 0 ? lifecycleImages : undefined,
+                audioUrl: lifecycleAudioUrl,
                 sessionKey: eventSessionKey
               })
             }
@@ -1004,6 +1038,21 @@ export class OpenClawClient {
               ss.started = false
             }
           }
+        }
+        break
+      }
+      case 'chat.side_result': {
+        // BTW side question response (v2026.3.22) — ephemeral, not persisted
+        const text = typeof payload.text === 'string'
+          ? payload.text
+          : typeof payload.message?.content === 'string'
+            ? payload.message.content
+            : extractTextFromContent(payload.message?.content) || ''
+        if (text) {
+          this.emit('sideResult', {
+            text: stripAnsi(text),
+            sessionKey: eventSessionKey
+          })
         }
         break
       }
@@ -1112,6 +1161,23 @@ export class OpenClawClient {
     }
   }
 
+  // Tools catalog (v2026.3.22)
+  async getToolsCatalog(): Promise<Array<{ name: string; description?: string; provenance?: string; enabled?: boolean }>> {
+    try {
+      const result = await this._call<any>('tools.catalog', {})
+      const tools = result?.tools || result
+      if (!Array.isArray(tools)) return []
+      return tools.map((t: any) => ({
+        name: t.name || t.id || String(t),
+        description: t.description || undefined,
+        provenance: t.provenance || t.source || undefined,
+        enabled: t.enabled ?? true
+      }))
+    } catch {
+      return []
+    }
+  }
+
   // Agents
   async listAgents(): Promise<Agent[]> {
     return agentsApi.listAgents(this._call.bind(this), this.url)
@@ -1178,6 +1244,11 @@ export class OpenClawClient {
 
   async patchServerConfig(patch: object, baseHash: string): Promise<void> {
     return configApi.patchServerConfig(this._call.bind(this), patch, baseHash)
+  }
+
+  /** Validate a config patch without applying it (v2026.3.22 dry-run). */
+  async validateServerConfig(patch: object, baseHash: string): Promise<{ valid: boolean; errors?: Array<{ path: string; message: string }> }> {
+    return configApi.validateServerConfig(this._call.bind(this), patch, baseHash)
   }
 
   // Cron Jobs (Extended)

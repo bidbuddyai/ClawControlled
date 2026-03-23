@@ -223,6 +223,9 @@ interface AppState {
   sessionToolCalls: Record<string, ToolCall[]>
   streamingThinking: Record<string, string>
   compactingSession: string | null
+  // BTW side result (v2026.3.22) — ephemeral response from /btw command
+  sideResult: { text: string; timestamp: number } | null
+  dismissSideResult: () => void
   thinkingEnabled: boolean
   setThinkingEnabled: (enabled: boolean) => void
   fastModeEnabled: boolean
@@ -1071,6 +1074,8 @@ export const useStore = create<AppState>()(
       sessionToolCalls: {},
       streamingThinking: {},
       compactingSession: null,
+      sideResult: null,
+      dismissSideResult: () => set({ sideResult: null }),
       thinkingEnabled: false,
       setThinkingEnabled: (enabled) => set({ thinkingEnabled: enabled }),
       fastModeEnabled: false,
@@ -2560,6 +2565,16 @@ export const useStore = create<AppState>()(
             }
             set({ connecting: false, connected: false, streamingSessions: {}, sessionHadChunks: {}, sessionToolCalls: {}, streamingThinking: {}, compactingSession: null, pendingExecApprovals: [] })
             get().stopSubagentPolling()
+          })
+
+          // BTW side result (v2026.3.22) — ephemeral inline response
+          client.on('sideResult', (payload: unknown) => {
+            const { text, sessionKey } = payload as { text: string; sessionKey?: string }
+            const { currentSessionId } = get()
+            const isCurrentSession = !sessionKey || !currentSessionId || sessionKey === currentSessionId
+            if (isCurrentSession && text) {
+              set({ sideResult: { text, timestamp: Date.now() } })
+            }
           })
 
           // Exec approval notifications: when a tool needs permission, notify the user

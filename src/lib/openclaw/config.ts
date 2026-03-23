@@ -21,3 +21,24 @@ export async function getServerConfig(call: RpcCaller): Promise<{ config: any; h
 export async function patchServerConfig(call: RpcCaller, patch: object, baseHash: string): Promise<void> {
   await call<any>('config.patch', { raw: JSON.stringify(patch), baseHash })
 }
+
+/**
+ * Validates a config patch without applying it (v2026.3.22 dry-run).
+ * Returns structured validation errors if any.
+ */
+export async function validateServerConfig(
+  call: RpcCaller,
+  patch: object,
+  baseHash: string
+): Promise<{ valid: boolean; errors?: Array<{ path: string; message: string }> }> {
+  try {
+    const result = await call<any>('config.patch', { raw: JSON.stringify(patch), baseHash, dryRun: true })
+    const errors = result?.errors
+    if (Array.isArray(errors) && errors.length > 0) {
+      return { valid: false, errors }
+    }
+    return { valid: true }
+  } catch (err: any) {
+    return { valid: false, errors: [{ path: '', message: err?.message || 'Validation failed' }] }
+  }
+}

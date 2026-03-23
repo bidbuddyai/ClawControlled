@@ -119,6 +119,8 @@ export function ServerSettingsView() {
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveResult, setSaveResult] = useState<'success' | 'error' | null>(null)
+  const [validating, setValidating] = useState(false)
+  const [validationErrors, setValidationErrors] = useState<Array<{ path: string; message: string }> | null>(null)
 
   // The original config from the server (read-only reference)
   const [originalConfig, setOriginalConfig] = useState<any>(null)
@@ -215,6 +217,29 @@ export function ServerSettingsView() {
     saveResultTimeout.current = setTimeout(() => setSaveResult(null), 4000)
   }, [client, editedConfig, originalConfig, baseHash])
 
+  const handleValidate = useCallback(async () => {
+    if (!client || !editedConfig || !originalConfig) return
+    const patch = buildPatch(originalConfig, editedConfig, ALL_PATHS)
+    if (!patch) { setValidationErrors(null); return }
+
+    setValidating(true)
+    setValidationErrors(null)
+    try {
+      const result = await client.validateServerConfig(patch, baseHash)
+      if (result.valid) {
+        setValidationErrors([])
+      } else {
+        setValidationErrors(result.errors || [{ path: '', message: 'Validation failed' }])
+      }
+    } catch {
+      setValidationErrors([{ path: '', message: 'Validation not supported by this server version' }])
+    }
+    setValidating(false)
+
+    if (saveResultTimeout.current) clearTimeout(saveResultTimeout.current)
+    saveResultTimeout.current = setTimeout(() => setValidationErrors(null), 6000)
+  }, [client, editedConfig, originalConfig, baseHash])
+
   const val = useCallback((path: string) => {
     return getPath(editedConfig, path)
   }, [editedConfig])
@@ -294,8 +319,17 @@ export function ServerSettingsView() {
             <div className="settings-actions" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
               {saveResult === 'success' && <span className="save-feedback success">Saved! Restarting...</span>}
               {saveResult === 'error' && <span className="save-feedback error">Save failed</span>}
+              {validationErrors !== null && validationErrors.length === 0 && <span className="save-feedback success">Valid</span>}
+              {validationErrors !== null && validationErrors.length > 0 && (
+                <span className="save-feedback error" title={validationErrors.map(e => `${e.path ? e.path + ': ' : ''}${e.message}`).join('\n')}>
+                  {validationErrors.length} error{validationErrors.length !== 1 ? 's' : ''}
+                </span>
+              )}
               <button className="settings-button secondary" onClick={handleDiscard} disabled={saving}>
                 Discard
+              </button>
+              <button className="settings-button secondary" onClick={handleValidate} disabled={saving || validating}>
+                {validating ? 'Validating...' : 'Validate'}
               </button>
               <button
                 className="settings-button primary"

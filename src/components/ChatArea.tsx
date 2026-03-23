@@ -50,6 +50,8 @@ export function ChatArea() {
   const activeToolCalls = useStore(selectActiveToolCalls)
   const streamingThinking = useStore(selectStreamingThinking)
   const isCompacting = useStore(selectIsCompacting)
+  const sideResult = useStore((state) => state.sideResult)
+  const dismissSideResult = useStore((state) => state.dismissSideResult)
   const messages = useMemo(() => {
     const seen = new Set<string>()
     return allMessages.filter((m) => {
@@ -220,6 +222,20 @@ export function ChatArea() {
     if (messages.length > 0) setLoadingSession(false)
   }, [messages.length])
 
+  // Auto-dismiss BTW side result after 15 seconds, or on Escape key
+  useEffect(() => {
+    if (!sideResult) return
+    const timer = setTimeout(dismissSideResult, 15000)
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') dismissSideResult()
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => {
+      clearTimeout(timer)
+      window.removeEventListener('keydown', handleKey)
+    }
+  }, [sideResult, dismissSideResult])
+
   if (messages.length === 0) {
     // Show skeleton when switching to a session that should have messages
     if (loadingSession && currentSessionId) {
@@ -382,6 +398,23 @@ export function ChatArea() {
             <span className="scroll-to-bottom-badge">{unreadBelow}</span>
           )}
         </button>
+      )}
+
+      {/* BTW side result overlay (v2026.3.22) */}
+      {sideResult && (
+        <div className="side-result-overlay" role="status" aria-label="Side question answer">
+          <div className="side-result-header">
+            <span className="side-result-label">/btw</span>
+            <button
+              className="side-result-dismiss"
+              onClick={dismissSideResult}
+              aria-label="Dismiss"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14"><path d="M18 6L6 18M6 6l12 12" /></svg>
+            </button>
+          </div>
+          <div className="side-result-body">{sideResult.text}</div>
+        </div>
       )}
 
       {/* In-chat search overlay */}
