@@ -3,7 +3,7 @@
 
 import { Capacitor } from '@capacitor/core'
 import { Preferences } from '@capacitor/preferences'
-import { OPENCLAW_CLIENT_ID, OPENCLAW_CLIENT_MODE, OPENCLAW_ROLE } from './appMeta'
+import { OPENCLAW_OPERATOR_CLIENT_ID, OPENCLAW_OPERATOR_CLIENT_MODE, OPENCLAW_ROLE } from './appMeta'
 
 const IDENTITY_KEY = 'clawcontrol-device-identity'
 const DEVICE_TOKEN_PREFIX = 'clawcontrol-device-token:'
@@ -167,21 +167,25 @@ export async function getOrCreateDeviceIdentity(): Promise<DeviceIdentity | null
 export async function signChallenge(
   identity: DeviceIdentity,
   nonce: string,
-  token: string,
+  signatureToken: string | null,
   scopes: string[],
-  overrides?: { clientId?: string; clientMode?: string; role?: string }
+  overrides?: { clientId?: string; clientMode?: string; role?: string; platform?: string; deviceFamily?: string }
 ): Promise<DeviceConnectField> {
   const signedAt = Date.now()
 
-  // These values must match the `connect` payload.
-  const clientId = overrides?.clientId ?? OPENCLAW_CLIENT_ID
-  const clientMode = overrides?.clientMode ?? OPENCLAW_CLIENT_MODE
+  // These values must match the `connect` payload exactly. Gateway verifies v3
+  // first, using auth.token/auth.deviceToken/auth.bootstrapToken as the
+  // signature token. Password auth intentionally contributes an empty token.
+  const clientId = overrides?.clientId ?? OPENCLAW_OPERATOR_CLIENT_ID
+  const clientMode = overrides?.clientMode ?? OPENCLAW_OPERATOR_CLIENT_MODE
   const role = overrides?.role ?? OPENCLAW_ROLE
+  const platform = (overrides?.platform ?? '').trim()
+  const deviceFamily = (overrides?.deviceFamily ?? '').trim()
 
   const scopesStr = scopes.join(',')
+  const token = signatureToken ?? ''
 
-  // v2 signing payload
-  const payload = `v2|${identity.id}|${clientId}|${clientMode}|${role}|${scopesStr}|${signedAt}|${token}|${nonce}`
+  const payload = `v3|${identity.id}|${clientId}|${clientMode}|${role}|${scopesStr}|${signedAt}|${token}|${nonce}|${platform}|${deviceFamily}`
 
   let signature: string
 

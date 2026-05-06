@@ -1,8 +1,8 @@
 import type { CapacitorConfig } from '@capacitor/cli'
 
 const config: CapacitorConfig = {
-  appId: 'com.claw.control',
-  appName: 'ClawControl',
+  appId: 'com.claw.controlled',
+  appName: 'ClawControlled',
   webDir: 'dist',
   server: {
     // Use https:// origin instead of capacitor:// to avoid CORS/mixed-content issues
@@ -34,11 +34,11 @@ const config: CapacitorConfig = {
   ios: {
     contentInset: 'never',
     backgroundColor: '#06080a',
-    scheme: 'ClawControl',
+    scheme: 'ClawControlled',
     preferredContentMode: 'mobile',
     // Required Info.plist entries for speech recognition:
-    // NSSpeechRecognitionUsageDescription: "ClawControl uses speech recognition for voice input."
-    // NSMicrophoneUsageDescription: "ClawControl needs microphone access for voice input."
+    // NSSpeechRecognitionUsageDescription: "ClawControlled uses speech recognition for voice input."
+    // NSMicrophoneUsageDescription: "ClawControlled needs microphone access for voice input."
   },
   android: {
     backgroundColor: '#06080a',

@@ -31,6 +31,7 @@ export function SettingsModal() {
     toggleTheme,
     pairingStatus,
     pairingDeviceId,
+    pairingRequestId,
     retryConnect,
     connectionError,
     deviceName,
@@ -226,15 +227,23 @@ export function SettingsModal() {
     setConnectPhase('connecting')
     try {
       await connect()
-      // Check if pairing is required — connect() doesn't throw for NOT_PAIRED
+      // Only close the modal after a confirmed hello-ok/connected state.
+      // NOT_PAIRED and other failed handshakes keep Settings open so the
+      // user can run `openclaw devices approve ...` or fix credentials.
       const state = useStore.getState()
+      if (state.connected) {
+        setError('')
+        setConnectPhase('idle')
+        setShowSettings(false)
+        return
+      }
       if (state.pairingStatus === 'pending') {
         setConnectPhase('idle')
         startAutoRetry()
-        return  // Keep modal open
+        return
       }
       setConnectPhase('idle')
-      setShowSettings(false)
+      setError(state.connectionError || 'Connection did not complete')
       return
     } catch (err) {
       // First attempt failed — retry once
@@ -245,14 +254,19 @@ export function SettingsModal() {
     try {
       await connect()
       const state = useStore.getState()
+      if (state.connected) {
+        setError('')
+        setConnectPhase('idle')
+        setShowSettings(false)
+        return
+      }
       if (state.pairingStatus === 'pending') {
         setConnectPhase('idle')
         startAutoRetry()
-        return  // Keep modal open
+        return
       }
-      setError('')
       setConnectPhase('idle')
-      setShowSettings(false)
+      setError(state.connectionError || 'Connection did not complete')
       return
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Connection failed')
@@ -268,7 +282,7 @@ export function SettingsModal() {
       e.preventDefault()
       handleSave()
     }
-    if (e.key === 'Escape') {
+    if (e.key === 'Escape' && connected) {
       setShowSettings(false)
     }
   }
@@ -277,7 +291,7 @@ export function SettingsModal() {
 
   const originHelpBlock = (
     <div style={{ marginTop: '8px', fontSize: '12px', lineHeight: '1.5' }}>
-      Your ClawControl origin must be allowed on the server. Run this on your OpenClaw host:
+      Your ClawControlled origin must be allowed on the server. Run this on your OpenClaw host:
       <code style={{ display: 'block', padding: '8px', background: 'var(--bg-primary)', borderRadius: '6px', marginTop: '6px', fontSize: '11px', wordBreak: 'break-all' }}>
         {`openclaw config set gateway.controlUi.allowedOrigins '["${window.location.origin}"]'`}
       </code>
@@ -292,12 +306,18 @@ export function SettingsModal() {
     </div>
   )
 
+  const authRateLimitHelpBlock = (
+    <div style={{ marginTop: '8px', fontSize: '12px', lineHeight: '1.5' }}>
+      OpenClaw temporarily blocked new auth attempts after repeated failures. Wait a minute, verify the token/password, then try again. This is a server-side rate limit, not a Windows build failure.
+    </div>
+  )
+
   return (
-    <div className="modal-overlay" onClick={() => setShowSettings(false)}>
+    <div className="modal-overlay" onClick={() => { if (connected) setShowSettings(false) }}>
       <div className="modal" data-testid="settings-modal" onClick={(e) => e.stopPropagation()} onKeyDown={handleKeyDown}>
         <div className="modal-header">
           <h2>Settings</h2>
-          <button className="modal-close" onClick={() => setShowSettings(false)}>
+          <button className="modal-close" onClick={() => { if (connected) setShowSettings(false) }} disabled={!connected} title={connected ? 'Close settings' : 'Connect before closing'}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M18 6L6 18M6 6l12 12" />
             </svg>
@@ -457,7 +477,7 @@ export function SettingsModal() {
                   placeholder="e.g. Jake's MacBook"
                   autoComplete="off"
                 />
-                <span className="form-hint">Optional — identifies this device in the OpenClaw devices list. Defaults to &quot;ClawControl&quot;.</span>
+                <span className="form-hint">Optional — identifies this device in the OpenClaw devices list. Defaults to &quot;ClawControlled&quot;.</span>
               </div>
 
               <div className="form-group">
@@ -519,15 +539,27 @@ export function SettingsModal() {
                 <span className="form-hint">Required if authentication is enabled on the server.</span>
               </div>
 
-              {error && <div className="form-error">{error}{error.toLowerCase().includes('origin not allowed') && originHelpBlock}</div>}
+              {error && (
+                <div className="form-error">
+                  {error}
+                  {error.toLowerCase().includes('origin not allowed') && originHelpBlock}
+                  {error.toLowerCase().includes('too many failed authentication attempts') && authRateLimitHelpBlock}
+                </div>
+              )}
               {!error && !connected && connectionError && (
-                <div className="form-error">{connectionError}{connectionError.toLowerCase().includes('origin not allowed') && originHelpBlock}</div>
+                <div className="form-error">
+                  {connectionError}
+                  {connectionError.toLowerCase().includes('origin not allowed') && originHelpBlock}
+                  {connectionError.toLowerCase().includes('too many failed authentication attempts') && authRateLimitHelpBlock}
+                </div>
               )}
             </>
           )}
 
           {pairingStatus === 'pending' && (() => {
-            const approveCmd = `openclaw devices approve ${pairingDeviceId || '<device-id>'}`
+            const approveCmd = pairingRequestId
+              ? `openclaw devices approve ${pairingRequestId}`
+              : 'openclaw devices list'
             const canShare = typeof navigator.share === 'function' && getPlatform() !== 'electron'
 
             // Derive HTTP(S) URL from WebSocket URL for the /nodes approval page
@@ -568,22 +600,30 @@ export function SettingsModal() {
                         onClick={(e) => { e.preventDefault(); openExternal(nodesUrl) }}
                         style={{ color: 'var(--accent)', textDecoration: 'underline', cursor: 'pointer' }}
                       >
-                        Open this link and approve the &quot;ClawControl&quot; device
+                        Open this link and approve the &quot;ClawControlled&quot; device
                       </a>
                     </p>
                     <p style={{ margin: '0 0 8px', fontSize: '12px', color: 'var(--text-secondary)' }}>
-                      Or run this command on your OpenClaw server:
+                      Or run this command on your OpenClaw server. OpenClaw approves by pending request ID, not device ID.
                     </p>
                   </>
                 ) : (
                   <p style={{ margin: '0 0 8px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                    This device needs to be approved on the server. Run this command on your OpenClaw server:
+                    This device needs to be approved on the server. OpenClaw approves by pending request ID, not device ID. Run this command on your OpenClaw server:
                   </p>
                 )}
                 <div style={{ position: 'relative' }}>
                   <code style={{ display: 'block', padding: '14px', paddingRight: '56px', background: 'var(--bg-primary)', borderRadius: '10px', fontSize: '12px', wordBreak: 'break-all' }}>
                     {approveCmd}
                   </code>
+                  {!pairingRequestId && (
+                    <p style={{ margin: '8px 0 0', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                      Then approve the current request with <code>openclaw devices approve &lt;requestId&gt;</code>. Re-run <code>openclaw devices list</code> before approving if the app has retried.
+                    </p>
+                  )}
+                  {pairingDeviceId && (
+                    <p style={{ margin: '8px 0 0', fontSize: '11px', color: 'var(--text-muted)' }}>Device ID: {pairingDeviceId}</p>
+                  )}
                   <div style={{ position: 'absolute', top: '50%', right: '8px', transform: 'translateY(-50%)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                     <button
                       onClick={handleCopy}
@@ -734,8 +774,8 @@ export function SettingsModal() {
               Disconnect
             </button>
           )}
-          <button className="btn btn-secondary" onClick={() => setShowSettings(false)}>
-            {connected ? 'Close' : 'Cancel'}
+          <button className="btn btn-secondary" onClick={() => { if (connected) setShowSettings(false) }} disabled={!connected}>
+            {connected ? 'Close' : 'Connect required'}
           </button>
           {!connected && (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>

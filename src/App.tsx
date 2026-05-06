@@ -4,6 +4,7 @@ import { useStore } from './store'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { Sidebar } from './components/Sidebar'
 import { ChatArea } from './components/ChatArea'
+import { ChatTabs } from './components/ChatTabs'
 import { TopBar } from './components/TopBar'
 import { RightPanel } from './components/RightPanel'
 import { InputArea } from './components/InputArea'
@@ -144,6 +145,7 @@ function App() {
           {mainView === 'chat' && (
             <div className="chat-canvas-layout">
               <div className="chat-column">
+                <ChatTabs />
                 <ChatArea />
                 <InputArea />
               </div>

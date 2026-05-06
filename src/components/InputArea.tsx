@@ -1,8 +1,8 @@
-import { useState, useRef, useEffect, useCallback, KeyboardEvent, ChangeEvent, CompositionEvent } from 'react'
+import { useState, useRef, useEffect, useCallback, KeyboardEvent, ChangeEvent, CompositionEvent, useMemo } from 'react'
 import { SpeechRecognition } from '@capacitor-community/speech-recognition'
 import { useStore, selectIsStreaming } from '../store'
 import { getPlatform, isNativeMobile } from '../lib/platform'
-import { getSlashCommandCompletions, type SlashCommandDef } from '../lib/slash-commands'
+import { buildSlashMenuGroups, getSlashCommandCompletions, type SlashCommandDef, type SlashMenuAction } from '../lib/slash-commands'
 
 type BrowserSpeechRecognition = {
   lang: string
@@ -18,6 +18,13 @@ type BrowserSpeechRecognition = {
 }
 
 type NativeRecognitionMode = 'none' | 'wake' | 'dictation'
+type SlashMenuGroupId = 'root' | 'task' | 'session' | 'agents' | 'cron' | 'config' | 'canvas' | 'model' | 'tools'
+
+type TaskPreset = {
+  label: string
+  description: string
+  prompt: string
+}
 type PendingImageAttachment = {
   id: string
   fileName: string
@@ -29,6 +36,25 @@ type PendingImageAttachment = {
 const DEFAULT_WAKE_TRIGGERS = ['openclaw', 'claude', 'computer']
 const WAKE_COOLDOWN_MS = 3000
 const MAX_IMAGE_BYTES = 5_000_000
+
+const TASK_PRESETS: TaskPreset[] = [
+  {
+    label: 'Ship feature',
+    description: 'Plan, implement, verify, and report.',
+    prompt: '/task Implement this feature end-to-end. Start by restating the goal, inspect the code, make the smallest safe changes, verify with tests/builds, and report exact files changed: '},
+  {
+    label: 'Fix bug',
+    description: 'Reproduce, patch, verify.',
+    prompt: '/task Diagnose and fix this bug. First identify the likely failure path, reproduce or inspect evidence, patch the root cause, run the relevant verification, and summarize the fix: '},
+  {
+    label: 'Code audit',
+    description: 'Find risks and propose fixes.',
+    prompt: '/task Audit this area for correctness, UX, edge cases, and regression risk. Produce prioritized findings and implement safe high-value fixes where appropriate: '},
+  {
+    label: 'Research',
+    description: 'Gather facts and synthesize next steps.',
+    prompt: '/task Research this question using reliable sources or local docs as appropriate, then synthesize a decision-ready answer with citations or file references: '}
+]
 
 function joinDictatedText(existing: string, dictated: string): string {
   const trimmed = dictated.trim()
@@ -72,6 +98,8 @@ export function InputArea() {
   const [attachedImages, setAttachedImages] = useState<PendingImageAttachment[]>([])
   const [slashCompletions, setSlashCompletions] = useState<SlashCommandDef[]>([])
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
+  const [slashMenuGroupId, setSlashMenuGroupId] = useState<SlashMenuGroupId>('root')
+  const [pendingConfirmAction, setPendingConfirmAction] = useState<SlashMenuAction | null>(null)
   const nativeSpeechAvailableRef = useRef(false)
   const electronSpeechAvailableRef = useRef(false)
 
@@ -542,24 +570,95 @@ export function InputArea() {
     }
   }, [message])
 
+  const slashMenuGroups = useMemo(() => buildSlashMenuGroups(), [])
+  const activeSlashMenu = useMemo(
+    () => slashMenuGroups.find(group => group.id === slashMenuGroupId) || slashMenuGroups[0],
+    [slashMenuGroupId, slashMenuGroups]
+  )
+  const quickSlashCommands = useMemo(
+    () => getSlashCommandCompletions('').filter(cmd => ['task', 'new', 'stop', 'compact', 'help'].includes(cmd.name)),
+    []
+  )
+  const showSlashCommandMenu = message.trim() === '/' || slashCompletions.length > 0 || pendingConfirmAction
+
+  const closeSlashMenus = useCallback(() => {
+    setSlashCompletions([])
+    setSlashMenuGroupId('root')
+    setPendingConfirmAction(null)
+  }, [])
+
+  const openSlashCommandCenter = useCallback(() => {
+    setMessage('/')
+    setSlashCompletions([])
+    setSlashMenuGroupId('root')
+    setPendingConfirmAction(null)
+    textareaRef.current?.focus()
+  }, [])
+
   // Slash command autocomplete
   const updateSlashCompletions = useCallback((text: string) => {
-    if (text.startsWith('/') && !text.includes(' ') && !text.includes('\n')) {
-      const filter = text.slice(1)
+    const trimmed = text.trim()
+
+    if (trimmed === '/') {
+      setSlashMenuGroupId('root')
+      setPendingConfirmAction(null)
+      setSlashCompletions([])
+      setSlashSelectedIndex(0)
+      return
+    }
+
+    if (trimmed.startsWith('/') && !trimmed.includes(' ') && !trimmed.includes('\n')) {
+      const filter = trimmed.slice(1)
       const completions = getSlashCommandCompletions(filter)
+      setPendingConfirmAction(null)
       setSlashCompletions(completions)
       setSlashSelectedIndex(0)
     } else {
       setSlashCompletions([])
+      if (!trimmed.startsWith('/')) {
+        setPendingConfirmAction(null)
+      }
     }
   }, [])
 
-  const insertSlashCommand = useCallback((cmd: SlashCommandDef) => {
-    const text = `/${cmd.name}${cmd.args ? ' ' : ''}`
+  const setDraftAndFocus = useCallback((text: string) => {
     setMessage(text)
-    setSlashCompletions([])
+    closeSlashMenus()
     textareaRef.current?.focus()
-  }, [])
+    requestAnimationFrame(() => {
+      const textarea = textareaRef.current
+      if (textarea) textarea.setSelectionRange(text.length, text.length)
+    })
+  }, [closeSlashMenus])
+
+  const insertSlashCommand = useCallback((cmd: SlashCommandDef) => {
+    setDraftAndFocus(`/${cmd.name}${cmd.args ? ' ' : ''}`)
+  }, [setDraftAndFocus])
+
+  const insertTaskPreset = useCallback((preset: TaskPreset) => {
+    setDraftAndFocus(preset.prompt)
+  }, [setDraftAndFocus])
+
+  const applyMenuAction = useCallback((action: SlashMenuAction) => {
+    if (action.requiresConfirm && pendingConfirmAction?.id !== action.id) {
+      setPendingConfirmAction(action)
+      return
+    }
+
+    const nextMessage = action.command
+    setMessage(nextMessage)
+    setPendingConfirmAction(null)
+
+    if (nextMessage === '/session' || nextMessage === '/agent' || nextMessage === '/cron' || nextMessage === '/config' || nextMessage === '/canvas' || nextMessage === '/model' || nextMessage === '/tools') {
+      const nextGroup = nextMessage.slice(1)
+      setSlashMenuGroupId((nextGroup === 'agent' ? 'agents' : nextGroup) as SlashMenuGroupId)
+      setSlashCompletions([])
+    } else {
+      closeSlashMenus()
+    }
+
+    textareaRef.current?.focus()
+  }, [closeSlashMenus, pendingConfirmAction])
 
   const handleSubmit = async () => {
     // Read from the DOM to catch any text still in the Android IME
@@ -568,7 +667,7 @@ export function InputArea() {
     if (!currentMessage.trim() && attachedImages.length === 0) return
 
     composingRef.current = false
-    setSlashCompletions([])
+    closeSlashMenus()
     const currentAttachments = attachedImages
     setMessage('')
     if (textareaRef.current) textareaRef.current.value = ''
@@ -596,7 +695,7 @@ export function InputArea() {
       }
       if (e.key === 'Escape') {
         e.preventDefault()
-        setSlashCompletions([])
+        closeSlashMenus()
         return
       }
     }
@@ -760,22 +859,146 @@ export function InputArea() {
           ))}
         </div>
       )}
-      {slashCompletions.length > 0 && (
+      <div className="slash-command-rail" aria-label="Quick slash commands">
+        <button
+          type="button"
+          className="slash-command-chip slash-command-chip-primary"
+          onMouseDown={(e) => { e.preventDefault(); openSlashCommandCenter() }}
+          title="Open command menu"
+        >
+          <span className="slash-command-chip-icon">/</span>
+          Commands
+        </button>
+        {quickSlashCommands.map((cmd) => (
+          <button
+            key={cmd.name}
+            type="button"
+            className="slash-command-chip"
+            onMouseDown={(e) => { e.preventDefault(); insertSlashCommand(cmd) }}
+            title={cmd.description}
+          >
+            <span className="slash-command-chip-icon">{cmd.icon || '/'}</span>
+            /{cmd.name}
+          </button>
+        ))}
+      </div>
+      <div className="task-preset-rail" aria-label="Task starters">
+        <span className="task-preset-label">Task starters</span>
+        {TASK_PRESETS.map((preset) => (
+          <button
+            key={preset.label}
+            type="button"
+            className="task-preset-chip"
+            onMouseDown={(e) => { e.preventDefault(); insertTaskPreset(preset) }}
+            title={preset.description}
+          >
+            <span>{preset.label}</span>
+            <small>{preset.description}</small>
+          </button>
+        ))}
+      </div>
+      {showSlashCommandMenu && (
         <div className="slash-command-menu" role="listbox" aria-label="Slash commands">
-          {slashCompletions.map((cmd, i) => (
-            <button
-              key={cmd.name}
-              role="option"
-              aria-selected={i === slashSelectedIndex}
-              className={`slash-command-item${i === slashSelectedIndex ? ' selected' : ''}`}
-              onMouseDown={(e) => { e.preventDefault(); insertSlashCommand(cmd) }}
-              onMouseEnter={() => setSlashSelectedIndex(i)}
-            >
-              <span className="slash-command-name">/{cmd.name}</span>
-              {cmd.args && <span className="slash-command-args">{cmd.args}</span>}
-              <span className="slash-command-desc">{cmd.description}</span>
-            </button>
-          ))}
+          <div className="slash-command-menu-header">
+            <div>
+              <div className="slash-command-menu-title">
+                {pendingConfirmAction ? 'Confirm action' : activeSlashMenu?.label || 'Command Center'}
+              </div>
+              <div className="slash-command-menu-subtitle">
+                {pendingConfirmAction
+                  ? `Confirm ${pendingConfirmAction.label.toLowerCase()} before applying it.`
+                  : activeSlashMenu?.description || 'Choose a command group or action.'}
+              </div>
+            </div>
+            <div className="slash-command-menu-controls">
+              {(slashMenuGroupId !== 'root' || pendingConfirmAction) && (
+                <button
+                  type="button"
+                  className="slash-command-control"
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    if (pendingConfirmAction) {
+                      setPendingConfirmAction(null)
+                    } else {
+                      setSlashMenuGroupId('root')
+                    }
+                    textareaRef.current?.focus()
+                  }}
+                >
+                  Back
+                </button>
+              )}
+              <button
+                type="button"
+                className="slash-command-control"
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  closeSlashMenus()
+                  textareaRef.current?.focus()
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+
+          {pendingConfirmAction ? (
+            <div className="slash-command-confirm-row">
+              <button
+                type="button"
+                className="slash-command-item"
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  applyMenuAction(pendingConfirmAction)
+                }}
+              >
+                <span className="slash-command-name destructive">Confirm</span>
+                <span className="slash-command-desc">{pendingConfirmAction.label}</span>
+              </button>
+              <button
+                type="button"
+                className="slash-command-item"
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  setPendingConfirmAction(null)
+                  textareaRef.current?.focus()
+                }}
+              >
+                <span className="slash-command-name">Cancel</span>
+                <span className="slash-command-desc">Keep this action unapplied</span>
+              </button>
+            </div>
+          ) : slashCompletions.length > 0 ? (
+            slashCompletions.map((cmd, i) => (
+              <button
+                key={cmd.name}
+                role="option"
+                aria-selected={i === slashSelectedIndex}
+                className={`slash-command-item${i === slashSelectedIndex ? ' selected' : ''}`}
+                onMouseDown={(e) => { e.preventDefault(); insertSlashCommand(cmd) }}
+                onMouseEnter={() => setSlashSelectedIndex(i)}
+              >
+                <span className="slash-command-name">/{cmd.name}</span>
+                {cmd.args && <span className="slash-command-args">{cmd.args}</span>}
+                <span className="slash-command-desc">{cmd.description}</span>
+              </button>
+            ))
+          ) : (
+            activeSlashMenu.actions.map((action) => (
+              <button
+                key={action.id}
+                type="button"
+                className="slash-command-item"
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  applyMenuAction(action)
+                }}
+              >
+                <span className={`slash-command-name${action.destructive ? ' destructive' : ''}`}>{action.label}</span>
+                <span className="slash-command-desc">{action.description || action.command}</span>
+              </button>
+            ))
+          )}
         </div>
       )}
       <div className="input-container">
@@ -789,6 +1012,15 @@ export function InputArea() {
             style={{ display: 'none' }}
           />
         )}
+        <button
+          className="attach-btn command-menu-btn"
+          type="button"
+          onClick={openSlashCommandCenter}
+          aria-label="Open slash command menu"
+          title="Slash commands"
+        >
+          /
+        </button>
         {!hideMediaButtons && (
           <button
             className="attach-btn"

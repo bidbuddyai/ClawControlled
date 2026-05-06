@@ -4,7 +4,7 @@
 
 import type { DeviceIdentity, DeviceConnectField } from '../device-identity'
 import { signChallenge } from '../device-identity'
-import { APP_NAME, APP_VERSION, OPENCLAW_CLIENT_ID, OPENCLAW_CLIENT_MODE, OPENCLAW_NODE_ROLE } from '../appMeta'
+import { APP_NAME, APP_VERSION, OPENCLAW_NODE_CLIENT_ID, OPENCLAW_NODE_CLIENT_MODE, OPENCLAW_NODE_ROLE } from '../appMeta'
 import { getPlatform } from '../platform'
 import type { InvokeRequest } from './types'
 import { dispatch } from './invoke-dispatcher'
@@ -148,15 +148,20 @@ export class NodeClient {
 
   private async performHandshake(nonce?: string): Promise<void> {
     const id = (++this.requestId).toString()
-    const scopes: string[] = []
+    // Map capability categories to required node scopes (e.g. "system" -> "node.system")
+    const scopes: string[] = getCapNames(this.permissions).map(c => `node.${c.toLowerCase()}`)
+
+    const platform = getPlatform()
+    const signatureToken = this.authMode === 'token' ? this.token : null
 
     let device: DeviceConnectField | undefined
     if (this.deviceIdentity && nonce) {
       try {
-        device = await signChallenge(this.deviceIdentity, nonce, this.token, scopes, {
-          clientId: OPENCLAW_CLIENT_ID,
-          clientMode: OPENCLAW_CLIENT_MODE,
-          role: OPENCLAW_NODE_ROLE
+        device = await signChallenge(this.deviceIdentity, nonce, signatureToken, scopes, {
+          clientId: OPENCLAW_NODE_CLIENT_ID,
+          clientMode: OPENCLAW_NODE_CLIENT_MODE,
+          role: OPENCLAW_NODE_ROLE,
+          platform
         })
       } catch {
         // signing failed — connect without device identity
@@ -173,11 +178,11 @@ export class NodeClient {
         role: OPENCLAW_NODE_ROLE,
         scopes,
         client: {
-          id: OPENCLAW_CLIENT_ID,
+          id: OPENCLAW_NODE_CLIENT_ID,
           displayName: this.deviceName || APP_NAME,
           version: APP_VERSION,
-          platform: getPlatform(),
-          mode: OPENCLAW_CLIENT_MODE
+          platform,
+          mode: OPENCLAW_NODE_CLIENT_MODE
         },
         caps: getCapNames(this.permissions),
         commands: getCommands(this.permissions),
@@ -227,8 +232,10 @@ export class NodeClient {
         if (errorCode === 'NOT_PAIRED') {
           // Suppress reconnect — pairing must happen first
           this.maxReconnectAttempts = 0
+          const details = msg.error?.details as { requestId?: string; deviceId?: string } | undefined
           this.emit('pairingRequired', {
-            deviceId: this.deviceIdentity?.id
+            requestId: details?.requestId,
+            deviceId: details?.deviceId || this.deviceIdentity?.id
           })
           reject?.(new Error('NOT_PAIRED'))
           return

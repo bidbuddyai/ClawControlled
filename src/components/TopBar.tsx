@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { useStore, selectSessionFastMode, selectSessionThinkingLevel } from '../store'
+import { useStore, selectSessionFastMode, selectSessionThinkingLevel, selectIsStreaming, selectActiveToolCalls, selectStreamingThinking } from '../store'
 
 export function TopBar() {
   const {
@@ -51,8 +51,12 @@ export function TopBar() {
 
   const sessionFastMode = useStore(selectSessionFastMode)
   const sessionThinkingLevel = useStore(selectSessionThinkingLevel)
+  const isStreaming = useStore(selectIsStreaming)
+  const activeToolCalls = useStore(selectActiveToolCalls)
+  const streamingThinking = useStore(selectStreamingThinking)
 
   const currentSession = sessions.find((s) => (s.key || s.id) === currentSessionId)
+  const agentActivity = activeToolCalls.length > 0 ? 'Working' : streamingThinking ? 'Thinking' : isStreaming ? 'Responding' : 'Idle'
 
   // Resolve a friendly display name, matching the Sidebar logic:
   // 1. If the session has a custom title (not "New Chat" and not the raw key), use it.
@@ -96,6 +100,11 @@ export function TopBar() {
             <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
           </svg>
         </button>
+      </div>
+
+      <div className={`agent-work-status ${agentActivity.toLowerCase()}`} title={`Agent status: ${agentActivity}`}>
+        <span className="agent-work-dot" />
+        <span>{agentActivity}</span>
       </div>
 
       <div className="connection-status">

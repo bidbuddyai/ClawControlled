@@ -14,6 +14,7 @@ import { parseSlashCommand } from '../lib/slash-commands'
 import { executeSlashCommand, type SlashCommandResult } from '../lib/slash-command-executor'
 import { PinnedMessages } from '../lib/pinned-messages'
 import { showToast } from '../components/ToastContainer'
+import { hasEvent as permissionHasEvent, hasMethod as permissionHasMethod, hasScope as permissionHasScope, normalizeStringList, type OperatorScope } from '../lib/openclaw/permissions'
 
 /** Matches internal system sessions like agent:main:main, agent:clarissa:cron, etc. */
 /** Matches internal system sessions: agent:X:main, agent:X:cron, agent:X:cron:*, agent:X:subagent:* */
@@ -143,10 +144,18 @@ interface AppState {
   setDeviceName: (name: string) => void
   /** Messages queued during transient disconnects, flushed on reconnect. */
   pendingMessages: PendingMessage[]
+  approvedScopes: string[]
+  availableMethods: string[]
+  availableEvents: string[]
+  hasScope: (scope: OperatorScope | string) => boolean
+  hasMethod: (method: string) => boolean
+  hasEvent: (event: string) => boolean
+  canUse: (method: string, requiredScopes?: OperatorScope | string | Array<OperatorScope | string>) => boolean
 
   // Device Identity & Pairing
   pairingStatus: 'none' | 'pending'
   pairingDeviceId: string | null
+  pairingRequestId: string | null
   retryConnect: () => Promise<void>
 
   // Node Mode
@@ -504,9 +513,23 @@ export const useStore = create<AppState>()(
   persist(
     (set, get) => ({
       // Theme
-      theme: 'dark',
+      theme: 'light',
       setTheme: (theme) => set({ theme }),
       toggleTheme: () => set((state) => ({ theme: state.theme === 'dark' ? 'light' : 'dark' })),
+
+      approvedScopes: [],
+      availableMethods: [],
+      availableEvents: [],
+      hasScope: (scope) => permissionHasScope(get().approvedScopes, scope),
+      hasMethod: (method) => permissionHasMethod(get().availableMethods, method),
+      hasEvent: (event) => permissionHasEvent(get().availableEvents, event),
+      canUse: (method, requiredScopes) => {
+        const state = get()
+        if (!permissionHasMethod(state.availableMethods, method)) return false
+        if (!requiredScopes) return true
+        const scopes = Array.isArray(requiredScopes) ? requiredScopes : [requiredScopes]
+        return scopes.every(scope => permissionHasScope(state.approvedScopes, scope))
+      },
 
       // Server Profiles
       serverProfiles: [],
@@ -734,8 +757,9 @@ export const useStore = create<AppState>()(
       // Device Identity & Pairing
       pairingStatus: 'none',
       pairingDeviceId: null,
+      pairingRequestId: null,
       retryConnect: async () => {
-        set({ pairingStatus: 'none', pairingDeviceId: null })
+        set({ pairingStatus: 'none', pairingDeviceId: null, pairingRequestId: null })
         try {
           await get().connect()
         } catch {
@@ -1138,6 +1162,8 @@ export const useStore = create<AppState>()(
           get().clearMessages()
         } else if (result.action === 'refresh') {
           await get().fetchSessions()
+        } else if (result.action === 'open-nodes') {
+          get().openNodes()
         }
         return result
       },
@@ -1338,18 +1364,53 @@ export const useStore = create<AppState>()(
         }).catch(() => { })
       },
       createNewSession: async () => {
-        const { client, currentAgentId } = get()
-        if (!client) return
+        const { client, currentAgentId, currentSessionId: prevSessionId, messages: currentMessages } = get()
+        if (!client) {
+          throw new Error('Not connected to OpenClaw Gateway')
+        }
+
+        if (prevSessionId && currentMessages.length > 0) {
+          const nonStreaming = currentMessages.filter(m => !m.id.startsWith('streaming-'))
+          if (nonStreaming.length > 0) {
+            _cacheSet(prevSessionId, nonStreaming)
+          }
+        }
 
         const session = await client.createSession(currentAgentId || undefined)
         const sessionId = session.key || session.id
-        set((state) => ({
-          sessions: [session, ...state.sessions.filter(s => (s.key || s.id) !== sessionId)],
-          currentSessionId: sessionId,
-          messages: [],
-          activeSubagents: [],
-          streamingSessionId: null
-        }))
+        const pinned = new PinnedMessages(sessionId)
+        _sessionMessagesCache.delete(sessionId)
+        client.setPrimarySessionKey(null)
+
+        set((state) => {
+          const { [sessionId]: _streaming, ...restStreaming } = state.streamingSessions
+          const { [sessionId]: _chunks, ...restChunks } = state.sessionHadChunks
+          const { [sessionId]: _toolCalls, ...restToolCalls } = state.sessionToolCalls
+          const { [sessionId]: _thinking, ...restThinking } = state.streamingThinking
+          const { [sessionId]: _unread, ...restUnread } = state.unreadCounts
+
+          return {
+            sessions: [session, ...state.sessions.filter(s => (s.key || s.id) !== sessionId)],
+            currentSessionId: sessionId,
+            messages: [],
+            activeSubagents: [],
+            streamingSessionId: null,
+            mainView: 'chat',
+            selectedSkill: null,
+            selectedCronJob: null,
+            selectedHook: null,
+            selectedAgentDetail: null,
+            selectedClawHubSkill: null,
+            pinnedMessageIds: new Set(pinned.ids),
+            draftMessage: '',
+            streamingSessions: restStreaming,
+            sessionHadChunks: restChunks,
+            sessionToolCalls: restToolCalls,
+            streamingThinking: restThinking,
+            unreadCounts: restUnread,
+            compactingSession: state.compactingSession === sessionId ? null : state.compactingSession,
+          }
+        })
       },
       deleteSession: (sessionId) => {
         if (SYSTEM_SESSION_RE.test(sessionId)) return
@@ -1847,6 +1908,9 @@ export const useStore = create<AppState>()(
         if (!get().serverUrl && config.defaultUrl) {
           set({ serverUrl: config.defaultUrl })
         }
+        if (config.authMode === 'token' || config.authMode === 'password') {
+          set({ authMode: config.authMode })
+        }
         if (config.theme) {
           set({ theme: config.theme as 'dark' | 'light' })
         }
@@ -1918,11 +1982,14 @@ export const useStore = create<AppState>()(
           return
         }
 
-        // Auto-connect
+        // Auto-connect. If the handshake does not reach a confirmed connected
+        // state, keep Settings open instead of dropping the user into chat.
         try {
           await get().connect()
         } catch {
           // Show settings on connection failure
+        }
+        if (!get().connected) {
           set({ showSettings: true })
         }
       },
@@ -1954,11 +2021,11 @@ export const useStore = create<AppState>()(
         }
 
         const thisGeneration = ++_connectGeneration
-        set({ connecting: true, pairingStatus: 'none', pairingDeviceId: null })
+        set({ connecting: true, pairingStatus: 'none', pairingDeviceId: null, pairingRequestId: null })
 
         // Hoisted so catch block can access for device token retry logic
         let serverHost: string | null = null
-        let effectiveToken = gatewayToken
+        let storedDeviceToken: string | null = null
         try {
           serverHost = new URL(serverUrl).host
         } catch {
@@ -1977,13 +2044,12 @@ export const useStore = create<AppState>()(
             // Ed25519 unavailable — connect without device identity
           }
 
-          // Check for a stored device token for this server.
+          // Check for a stored device token for this server. Keep it separate
+          // from the shared token/password so the connect auth shape matches
+          // Gateway's verifier: auth.deviceToken is signed, auth.password is not.
           if (serverHost) {
             try {
-              const storedDeviceToken = await getDeviceToken(serverHost)
-              if (storedDeviceToken) {
-                effectiveToken = storedDeviceToken
-              }
+              storedDeviceToken = await getDeviceToken(serverHost)
             } catch {
               // Storage read failed
             }
@@ -2004,7 +2070,7 @@ export const useStore = create<AppState>()(
             // URL parsing failed, proceed without factory
           }
           const { deviceName } = get()
-          const client = new OpenClawClient(serverUrl, effectiveToken, authMode, wsFactory, deviceIdentity, deviceName || undefined)
+          const client = new OpenClawClient(serverUrl, gatewayToken, authMode, wsFactory, deviceIdentity, deviceName || undefined, storedDeviceToken)
 
           // Set up event handlers
           client.on('message', (msgArg: unknown) => {
@@ -2160,11 +2226,26 @@ export const useStore = create<AppState>()(
               disconnectGraceTimer = null
             }
 
-            set({ connected: true, connecting: false, connectionError: null, pairingStatus: 'none', pairingDeviceId: null })
+            const helloOk = payload && typeof payload === 'object' ? payload as Record<string, any> : null
+            const approvedScopes = normalizeStringList(helloOk?.scopes)
+            const availableMethods = normalizeStringList(helloOk?.features?.methods)
+            const availableEvents = normalizeStringList(helloOk?.features?.events)
+
+            set({
+              connected: true,
+              connecting: false,
+              connectionError: null,
+              pairingStatus: 'none',
+              pairingDeviceId: null,
+              pairingRequestId: null,
+              showSettings: false,
+              approvedScopes,
+              availableMethods,
+              availableEvents
+            })
 
             // Extract and store device token from hello-ok response
-            if (serverHost && payload && typeof payload === 'object') {
-              const helloOk = payload as Record<string, any>
+            if (serverHost && helloOk) {
               const deviceToken = helloOk.auth?.deviceToken
               if (typeof deviceToken === 'string' && deviceToken) {
                 saveDeviceToken(serverHost, deviceToken).catch(() => { })
@@ -2223,11 +2304,12 @@ export const useStore = create<AppState>()(
           })
 
           client.on('pairingRequired', (payload: unknown) => {
-            const { deviceId } = (payload || {}) as { requestId?: string; deviceId?: string }
+            const { requestId, deviceId } = (payload || {}) as { requestId?: string; deviceId?: string }
             set({
               connecting: false,
               pairingStatus: 'pending',
               pairingDeviceId: deviceId || null,
+              pairingRequestId: requestId || null,
               showSettings: true
             })
           })
@@ -2643,7 +2725,7 @@ export const useStore = create<AppState>()(
                 }]
               }))
             }
-            set({ connecting: false, connected: false, streamingSessions: {}, sessionHadChunks: {}, sessionToolCalls: {}, streamingThinking: {}, compactingSession: null, pendingExecApprovals: [] })
+            set({ connecting: false, connected: false, showSettings: true, streamingSessions: {}, sessionHadChunks: {}, sessionToolCalls: {}, streamingThinking: {}, compactingSession: null, pendingExecApprovals: [] })
             get().stopSubagentPolling()
           })
 
@@ -2696,7 +2778,7 @@ export const useStore = create<AppState>()(
             return
           }
 
-          ; (globalThis as any).__clawdeskClient = client
+          Reflect.set(globalThis as object, '__clawdeskClient', client)
           set({ client })
 
           // Fetch initial data
@@ -2754,10 +2836,11 @@ export const useStore = create<AppState>()(
             })
             nodeClient.on('pairingRequired', (payload: unknown) => {
               if (_connectGeneration !== nodeGeneration) return
-              const { deviceId } = (payload || {}) as { deviceId?: string }
+              const { requestId, deviceId } = (payload || {}) as { requestId?: string; deviceId?: string }
               set({
                 pairingStatus: 'pending',
                 pairingDeviceId: deviceId || null,
+                pairingRequestId: requestId || null,
                 showSettings: true
               })
             })
@@ -2801,8 +2884,8 @@ export const useStore = create<AppState>()(
                 })
                 retryClient.on('pairingRequired', (p: unknown) => {
                   if (_connectGeneration !== nodeGeneration) return
-                  const { deviceId } = (p || {}) as { deviceId?: string }
-                  set({ pairingStatus: 'pending', pairingDeviceId: deviceId || null, showSettings: true })
+                  const { requestId, deviceId } = (p || {}) as { requestId?: string; deviceId?: string }
+                  set({ pairingStatus: 'pending', pairingDeviceId: deviceId || null, pairingRequestId: requestId || null, showSettings: true })
                 })
                 ;(globalThis as any).__clawdeskNodeClient = retryClient
                 try {
@@ -2843,6 +2926,7 @@ export const useStore = create<AppState>()(
 
           // Don't rethrow pairing errors — the UI handles them via pairingStatus
           if (errMsg === 'NOT_PAIRED') {
+            set({ connecting: false, connected: false, showSettings: true })
             return
           }
 
@@ -2851,7 +2935,7 @@ export const useStore = create<AppState>()(
             const retries = (get() as any)._staleIdentityRetries || 0
             if (retries >= 1) {
               console.warn('[connect] Stale device identity retry exhausted, giving up')
-                ; (set as any)({ connecting: false, connected: false, _staleIdentityRetries: 0 })
+                ; (set as any)({ connecting: false, connected: false, showSettings: true, _staleIdentityRetries: 0 })
               return
             }
             (set as any)({ _staleIdentityRetries: retries + 1 })
@@ -2862,19 +2946,20 @@ export const useStore = create<AppState>()(
 
           // Don't rethrow cert errors — the CertErrorModal handles them
           if (errMsg.startsWith('Certificate error')) {
-            set({ connecting: false, connected: false })
+            set({ connecting: false, connected: false, showSettings: true })
             return
           }
 
-          // If we used a stored device token and it failed, retry with the gateway token
-          if (serverHost && effectiveToken !== gatewayToken) {
+          // If we used a stored device token and it failed, clear it and retry
+          // with the configured shared token/password only.
+          if (serverHost && storedDeviceToken) {
             await clearDeviceToken(serverHost)
             set({ connecting: false })
             return get().connect()
           }
 
           const connectionError = err instanceof Error ? err.message : 'Connection failed'
-          set({ connecting: false, connected: false, connectionError })
+          set({ connecting: false, connected: false, showSettings: true, connectionError })
           throw err
         }
       },

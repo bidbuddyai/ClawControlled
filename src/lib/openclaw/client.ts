@@ -7,8 +7,9 @@ import type {
 } from './types'
 import type { DeviceIdentity, DeviceConnectField } from '../device-identity'
 import { signChallenge } from '../device-identity'
-import { APP_NAME, APP_VERSION, OPENCLAW_CLIENT_ID, OPENCLAW_CLIENT_MODE } from '../appMeta'
+import { APP_NAME, APP_VERSION, OPENCLAW_OPERATOR_CLIENT_ID, OPENCLAW_OPERATOR_CLIENT_MODE, OPENCLAW_ROLE } from '../appMeta'
 import { getPlatform } from '../platform'
+import { CURRENT_OPERATOR_SCOPES } from './permissions'
 import { stripAnsi, stripModelSpecialTokens, extractToolResultText, extractTextFromContent, extractImagesFromContent, isHeartbeatContent, isNoiseContent, stripSystemNotifications, parseMediaTokens, classifyMediaUrls } from './utils'
 import * as sessionsApi from './sessions'
 import * as chatApi from './chat'
@@ -61,6 +62,7 @@ export class OpenClawClient {
   private authenticated = false
   private deviceIdentity: DeviceIdentity | null = null
   private deviceName: string | null = null
+  private deviceToken: string | null = null
   private healthCheckTimer: ReturnType<typeof setInterval> | null = null
   private static HEALTH_CHECK_INTERVAL = 15000 // 15s
   private static HEALTH_CHECK_TIMEOUT = 10000  // 10s
@@ -100,13 +102,14 @@ export class OpenClawClient {
   // only one stream writes to the main chat placeholder.
   private activeStreamKey: string | null = null
 
-  constructor(url: string, token: string = '', authMode: 'token' | 'password' = 'token', wsFactory?: WebSocketFactory, deviceIdentity?: DeviceIdentity | null, deviceName?: string) {
+  constructor(url: string, token: string = '', authMode: 'token' | 'password' = 'token', wsFactory?: WebSocketFactory, deviceIdentity?: DeviceIdentity | null, deviceName?: string, deviceToken?: string | null) {
     this.url = url
     this.token = token
     this.authMode = authMode
     this.wsFactory = wsFactory || null
     this.deviceIdentity = deviceIdentity || null
     this.deviceName = deviceName || null
+    this.deviceToken = deviceToken || null
   }
 
   // Event handling
@@ -180,7 +183,7 @@ export class OpenClawClient {
             this.ws?.readyState === WebSocket.CLOSED
 
           if (isTLSError || isBrowserCertGuess) {
-            // We'll let the standard `attemptReconnect` logic retry this connection 
+            // We'll let the standard `attemptReconnect` logic retry this connection
             // instead of instantly showing the unrecoverable error modal.
             try {
               const urlObj = new URL(this.url)
@@ -441,16 +444,30 @@ export class OpenClawClient {
 
   private async performHandshake(nonce?: string): Promise<void> {
     const id = (++this.requestId).toString()
-    const scopes = ['operator.read', 'operator.write', 'operator.admin', 'operator.approvals']
+    const scopes = CURRENT_OPERATOR_SCOPES
+
+    const platform = getPlatform()
+    const signatureToken = this.deviceToken || (this.authMode === 'token' ? this.token : null)
 
     // Sign the challenge if we have a device identity and nonce
     let device: DeviceConnectField | undefined
     if (this.deviceIdentity && nonce) {
       try {
-        device = await signChallenge(this.deviceIdentity, nonce, this.token, scopes)
+        device = await signChallenge(this.deviceIdentity, nonce, signatureToken, scopes, {
+          clientId: OPENCLAW_OPERATOR_CLIENT_ID,
+          clientMode: OPENCLAW_OPERATOR_CLIENT_MODE,
+          role: OPENCLAW_ROLE,
+          platform
+        })
       } catch (err) {
         // Device challenge signing failed — connect without device identity
       }
+    }
+
+    const auth = {
+      ...(this.authMode === 'password' && this.token ? { password: this.token } : {}),
+      ...(this.authMode === 'token' && this.token ? { token: this.token } : {}),
+      ...(this.deviceToken ? { deviceToken: this.deviceToken } : {})
     }
 
     const connectMsg: RequestFrame = {
@@ -460,19 +477,17 @@ export class OpenClawClient {
       params: {
         minProtocol: 3,
         maxProtocol: 3,
-        role: 'operator',
+        role: OPENCLAW_ROLE,
         scopes,
         client: {
-          id: OPENCLAW_CLIENT_ID,
+          id: OPENCLAW_OPERATOR_CLIENT_ID,
           displayName: this.deviceName || APP_NAME,
           version: APP_VERSION,
-          platform: getPlatform(),
-          mode: OPENCLAW_CLIENT_MODE
+          platform,
+          mode: OPENCLAW_OPERATOR_CLIENT_MODE
         },
         caps: ['tool-events', 'thinking-events', 'plugin-approvals'],
-        auth: this.token
-          ? (this.authMode === 'password' ? { password: this.token } : { token: this.token })
-          : undefined,
+        auth: Object.keys(auth).length ? auth : undefined,
         device
       }
     }
@@ -574,19 +589,22 @@ export class OpenClawClient {
           const errorCode = resFrame.error?.code
           const errorMsg = resFrame.error?.message || 'Handshake failed'
           if (errorCode === 'NOT_PAIRED') {
+            const details = resFrame.error?.details as { requestId?: string; deviceId?: string } | undefined
             this.emit('pairingRequired', {
-              requestId: resFrame.id,
-              deviceId: this.deviceIdentity?.id
+              requestId: details?.requestId || resFrame.id,
+              deviceId: details?.deviceId || this.deviceIdentity?.id
             })
             reject?.(new Error('NOT_PAIRED'))
             return
           }
-          // Stale device identity — keypair changed but server has old key.
-          // Signal the store to clear the identity and retry.
+          // Invalid signatures usually indicate a client/server signing payload
+          // mismatch, bad auth token selection, or clock skew. Do not clear the
+          // stable device identity automatically here: regenerating it creates a
+          // new device on every retry and makes diagnosis/pairing worse. Manual
+          // identity reset remains available from settings.
           if (errorMsg.toLowerCase().includes('signature invalid') ||
             errorMsg.toLowerCase().includes('signature mismatch')) {
-            this.emit('deviceIdentityStale')
-            reject?.(new Error('DEVICE_IDENTITY_STALE'))
+            reject?.(new Error('DEVICE_SIGNATURE_INVALID'))
             return
           }
           reject?.(new Error(errorMsg))
@@ -681,18 +699,11 @@ export class OpenClawClient {
     const previous = ss.text
     if (nextText === previous) return
 
-    // Single-stream-key guard: only the first session key to produce text
-    // in a send cycle is allowed to emit chunks. In multi-agent setups,
-    // the server may send the same content through multiple session keys
-    // (parent session, system session, subagent). Without this guard, all
-    // of them would write to the main chat placeholder, causing triple text.
+    // Track the first active session key for the cycle, but allow every
+    // session stream to emit independently. The renderer/store layer is
+    // responsible for routing chunks by session key.
     if (this.activeStreamKey === null) {
       this.activeStreamKey = sessionKey
-    } else if (this.activeStreamKey !== sessionKey) {
-      // Still accumulate text internally so state stays consistent,
-      // but suppress the emission to prevent duplicate display.
-      ss.text = nextText
-      return
     }
 
     if (!previous) {
@@ -1293,7 +1304,7 @@ export class OpenClawClient {
     thinkingLevel?: string | null
     attachments?: chatApi.ChatAttachmentInput[]
   }): Promise<{ sessionKey?: string }> {
-    return chatApi.sendMessage(this._call.bind(this), params)
+    return chatApi.sendMessage(this.call.bind(this), params)
   }
 
   async abortChat(sessionId: string): Promise<void> {

@@ -54,12 +54,22 @@ export function ChatArea() {
   const dismissSideResult = useStore((state) => state.dismissSideResult)
   const messages = useMemo(() => {
     const seen = new Set<string>()
-    return allMessages.filter((m) => {
-      if (m.role === 'system' && !m.id.startsWith('error-')) return false
-      if (seen.has(m.id)) return false
-      seen.add(m.id)
-      return true
-    })
+    return allMessages
+      .map((message, originalIndex) => ({ message, originalIndex }))
+      .filter(({ message }) => {
+        if (message.role === 'system' && !message.id.startsWith('error-')) return false
+        if (seen.has(message.id)) return false
+        seen.add(message.id)
+        return true
+      })
+      .sort((a, b) => {
+        const timeA = Date.parse(a.message.timestamp)
+        const timeB = Date.parse(b.message.timestamp)
+        const safeA = Number.isFinite(timeA) ? timeA : a.originalIndex
+        const safeB = Number.isFinite(timeB) ? timeB : b.originalIndex
+        return safeA === safeB ? a.originalIndex - b.originalIndex : safeA - safeB
+      })
+      .map(({ message }) => message)
   }, [allMessages])
   const chatEndRef = useRef<HTMLDivElement>(null)
   const chatContainerRef = useRef<HTMLDivElement>(null)
@@ -83,6 +93,13 @@ export function ChatArea() {
   const currentSession = sessions.find(s => (s.key || s.id) === currentSessionId)
   const sessionAgentId = currentSession?.agentId || currentAgentId
   const currentAgent = agents.find((a) => a.id === sessionAgentId)
+  const activityLabel = activeToolCalls.length > 0
+    ? `Working with ${activeToolCalls.length} tool${activeToolCalls.length === 1 ? '' : 's'}`
+    : streamingThinking
+      ? 'Thinking'
+      : isStreaming
+        ? (hadStreamChunks ? 'Responding' : 'Starting')
+        : 'Idle'
 
   // Build lookup maps: tool calls and subagents grouped by afterMessageId
   // Must be before the early return to satisfy Rules of Hooks.
@@ -256,7 +273,7 @@ export function ChatArea() {
       <div className="chat-area" data-testid="chat-area">
         <div className="chat-empty">
           <div className="empty-logo">
-            <img src={logoUrl} alt="ClawControl logo" />
+            <img src={logoUrl} alt="ClawControlled logo" />
           </div>
           <h2>Start a Conversation</h2>
           <p>Send a message to begin chatting with {currentAgent?.name || 'the AI assistant'}</p>
@@ -300,6 +317,7 @@ export function ChatArea() {
                 agentName={currentAgent?.name}
                 agentAvatar={currentAgent?.avatar}
                 streamingThinking={index === messages.length - 1 && isStreaming && !message.thinking ? streamingThinking : undefined}
+                showContinueNudge={index === messages.length - 1 && !isStreaming && message.role === 'assistant' && !!message.content?.trim()}
               />
               {msgSubagents && (
                 <div className="subagents-container">
@@ -326,6 +344,16 @@ export function ChatArea() {
             {subagentsByMessageId.get('__trailing__')!.map((sa) => (
               <SubagentBlock key={sa.sessionKey} subagent={sa} onOpen={openSubagentPopout} />
             ))}
+          </div>
+        )}
+
+        {isStreaming && (
+          <div className="agent-activity-strip" aria-live="polite">
+            <span className="agent-activity-dot" />
+            <span className="agent-activity-label">{currentAgent?.name || 'Assistant'} is {activityLabel.toLowerCase()}...</span>
+            {activeToolCalls.length > 0 && (
+              <span className="agent-activity-tools">{activeToolCalls.slice(0, 2).map(tool => tool.name).join(', ')}</span>
+            )}
           </div>
         )}
 
@@ -577,11 +605,13 @@ const MessageBubble = memo(function MessageBubble({
   agentName,
   agentAvatar,
   streamingThinking,
+  showContinueNudge = false,
 }: {
   message: Message
   agentName?: string
   agentAvatar?: string
   streamingThinking?: string
+  showContinueNudge?: boolean
 }) {
   const isUser = message.role === 'user'
   const isSystem = message.role === 'system'
@@ -662,6 +692,31 @@ const MessageBubble = memo(function MessageBubble({
             />
           )}
           <MessageContent content={message.content} images={message.images} audioUrl={message.audioUrl} videoUrl={message.videoUrl} audioAsVoice={message.audioAsVoice} />
+          {showContinueNudge && (
+            <div className="continue-nudge-bar" aria-label="Continue options">
+              <button
+                type="button"
+                className="continue-nudge-btn"
+                onClick={() => sendMessage('Please continue from where you left off. Keep going.')}
+              >
+                <span>↳</span> Keep going
+              </button>
+              <button
+                type="button"
+                className="continue-nudge-btn secondary"
+                onClick={() => sendMessage('Please finish this with a concrete checklist, next actions, and any blockers.')}
+              >
+                Finish/checklist
+              </button>
+              <button
+                type="button"
+                className="continue-nudge-btn secondary"
+                onClick={() => sendMessage('/task Continue and complete the unfinished work from this conversation. Start by restating the objective, then proceed until done or blocked.')}
+              >
+                Make task
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

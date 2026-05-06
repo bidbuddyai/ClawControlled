@@ -206,8 +206,8 @@ export function Sidebar() {
             onClick={() => sidebarCollapsed && setSidebarCollapsed(false)}
             style={sidebarCollapsed ? { cursor: 'pointer' } : undefined}
           >
-            <img className="logo-icon" src={logoUrl} alt="ClawControl logo" />
-            <span className="logo-text">ClawControl</span>
+            <img className="logo-icon" src={logoUrl} alt="ClawControlled logo" />
+            <span className="logo-text">ClawControlled</span>
           </div>
           <button
             className="sidebar-toggle"
@@ -220,13 +220,21 @@ export function Sidebar() {
           </button>
         </div>
 
-        <button className="new-chat-btn" data-testid="new-chat-btn" onClick={() => {
-          createNewSession();
-          setTimeout(() => {
-            const input = document.querySelector('.input-area textarea') as HTMLTextAreaElement;
-            if (input) input.focus();
-          }, 50);
-        }}>
+        <button
+          className="new-chat-btn"
+          data-testid="new-chat-btn"
+          onClick={async () => {
+            try {
+              await createNewSession()
+              setTimeout(() => {
+                const input = document.querySelector('.input-area textarea') as HTMLTextAreaElement | null
+                input?.focus()
+              }, 50)
+            } catch (error) {
+              showToast(error instanceof Error ? error.message : 'Failed to create a new chat session')
+            }
+          }}
+        >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M12 5v14M5 12h14" />
           </svg>

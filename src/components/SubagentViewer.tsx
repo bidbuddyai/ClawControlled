@@ -8,6 +8,17 @@ import { openExternal } from '../lib/platform'
 
 marked.setOptions({ breaks: true, gfm: true, async: false })
 
+function getStoredTheme(): 'dark' | 'light' {
+  try {
+    const raw = localStorage.getItem('clawcontrol-storage')
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (parsed?.state?.theme === 'dark') return 'dark'
+    }
+  } catch { /* ignore */ }
+  return 'light'
+}
+
 interface ToolCallInfo {
   toolCallId: string
   name: string
@@ -35,6 +46,7 @@ export function SubagentViewer({
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting')
   const chatEndRef = useRef<HTMLDivElement>(null)
   const clientRef = useRef<OpenClawClient | null>(null)
+  const theme = getStoredTheme()
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -153,7 +165,7 @@ export function SubagentViewer({
   )
 
   return (
-    <div className="subagent-viewer" data-theme="dark">
+    <div className="subagent-viewer" data-theme={theme}>
       <div className="subagent-viewer-header">
         <div className="subagent-viewer-title">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">

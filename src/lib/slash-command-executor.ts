@@ -1,15 +1,13 @@
-// Slash command execution engine for ClawControl
-// Executes local slash commands via gateway RPC methods (v2026.3.12)
+// Slash command execution engine for ClawControlled
+// Executes local slash commands via gateway RPC methods.
 
 import type { OpenClawClient } from './openclaw/client'
 import type { Message, Session, Agent } from './openclaw/types'
-import { SLASH_COMMANDS } from './slash-commands'
+import { SLASH_COMMANDS, CATEGORY_LABELS } from './slash-commands'
 
 export interface SlashCommandResult {
-  /** Markdown-formatted result to display in chat as a system message. */
   content: string
-  /** Side-effect action the caller should perform after displaying the result. */
-  action?: 'refresh' | 'export' | 'new-session' | 'reset' | 'stop' | 'clear'
+  action?: 'refresh' | 'export' | 'new-session' | 'reset' | 'stop' | 'clear' | 'open-nodes'
 }
 
 export async function executeSlashCommand(
@@ -29,6 +27,8 @@ export async function executeSlashCommand(
       return executeHelp()
     case 'new':
       return { content: 'Starting new session...', action: 'new-session' }
+    case 'session':
+      return executeSessionMenu(args)
     case 'reset':
       return { content: 'Resetting session...', action: 'reset' }
     case 'stop':
@@ -49,10 +49,18 @@ export async function executeSlashCommand(
       return executeExport(context.messages, sessionKey)
     case 'usage':
       return executeUsage(context)
+    case 'agent':
+      return executeAgentMenu(args, context.agents)
     case 'agents':
       return executeAgents(context.agents)
     case 'kill':
       return await executeKill(client, sessionKey, args)
+    case 'cron':
+      return executeCronMenu(args)
+    case 'config':
+      return executeConfigMenu(args)
+    case 'canvas':
+      return executeCanvasMenu(args)
     default:
       return { content: `Unknown command: \`/${commandName}\`` }
   }
@@ -63,9 +71,10 @@ function executeHelp(): SlashCommandResult {
   let currentCategory = ''
 
   for (const cmd of SLASH_COMMANDS) {
-    if (cmd.category !== currentCategory) {
-      currentCategory = cmd.category
-      lines.push(`**${currentCategory.charAt(0).toUpperCase() + currentCategory.slice(1)}**`)
+    const categoryLabel = CATEGORY_LABELS[cmd.category]
+    if (categoryLabel !== currentCategory) {
+      currentCategory = categoryLabel
+      lines.push(`**${currentCategory}**`)
     }
     const argStr = cmd.args ? ` ${cmd.args}` : ''
     lines.push(`\`/${cmd.name}${argStr}\` — ${cmd.description}`)
@@ -73,6 +82,38 @@ function executeHelp(): SlashCommandResult {
 
   lines.push('\nType `/` to open the command menu.')
   return { content: lines.join('\n') }
+}
+
+function executeSessionMenu(args: string): SlashCommandResult {
+  const action = args.trim().toLowerCase()
+  if (!action) {
+    return {
+      content: [
+        '**Session Menu**',
+        '- `/session new` — Create and switch to a brand new chat',
+        '- `/session rename` — Rename the current session [UI flow pending]',
+        '- `/session search` — Search session history [interactive UI pending]',
+        '- `/session archive` — Archive a session [stub pending backend flow]',
+        '- `/session delete` — Delete a session [UI confirm flow pending]',
+      ].join('\n')
+    }
+  }
+
+  switch (action) {
+    case 'new':
+    case 'new-chat':
+      return { content: 'Starting new session...', action: 'new-session' }
+    case 'rename':
+      return { content: 'Session rename is available from the session context menu. Interactive `/session rename` flow is queued for this rebuild.' }
+    case 'search':
+      return { content: 'Session search UI is planned as part of the new session manager surface. Typed search command scaffolding is in place.' }
+    case 'archive':
+      return { content: 'Session archive is not yet wired to a backend API. Safe UI stub planned, no destructive action taken.' }
+    case 'delete':
+      return { content: 'Session delete currently uses the sidebar/context menu confirmation flow. Guided slash confirmation is still being added.' }
+    default:
+      return { content: `Unknown session action: \`${action}\`` }
+  }
 }
 
 async function executeCompact(client: OpenClawClient, sessionKey: string): Promise<SlashCommandResult> {
@@ -95,7 +136,6 @@ async function executeModel(
     const model = session?.model || 'default'
     const lines = [`**Current model:** \`${model}\``]
 
-    // Fetch available models via models.list RPC
     try {
       const models = await client.listModels()
       if (models.length > 0) {
@@ -105,7 +145,9 @@ async function executeModel(
           (modelIds.length > 10 ? ` +${modelIds.length - 10} more` : '')
         )
       }
-    } catch { /* ignore */ }
+    } catch {
+      // ignore
+    }
 
     return { content: lines.join('\n') }
   }
@@ -215,16 +257,12 @@ function executeExport(messages: Message[], sessionKey: string): SlashCommandRes
   }
 
   const markdown = lines.join('\n')
-
-  // Copy to clipboard
-  navigator.clipboard.writeText(markdown).catch(() => { /* ignore */ })
+  navigator.clipboard.writeText(markdown).catch(() => {})
 
   return { content: `Exported ${messages.length} messages to clipboard.`, action: 'export' }
 }
 
 function executeUsage(context: { sessions: Session[] }): SlashCommandResult {
-  // Sum up across all sessions or show current session
-  // For simplicity, show aggregate
   let totalInput = 0
   let totalOutput = 0
   for (const s of context.sessions) {
@@ -243,6 +281,37 @@ function executeUsage(context: { sessions: Session[] }): SlashCommandResult {
   return { content: lines.join('\n') }
 }
 
+function executeAgentMenu(args: string, agents: Agent[]): SlashCommandResult {
+  const action = args.trim().toLowerCase()
+  if (!action) {
+    return {
+      content: [
+        '**Agent Menu**',
+        '- `/agent list` — Show configured agents',
+        '- `/agent create` — Open create-agent workflow [UI flow available]',
+        '- `/agent edit` — Edit selected agent [detail view flow available]',
+        '- `/agent delete` — Delete selected agent [detail view confirm flow]',
+        '- `/agent assign-role` — Open the device role and token manager',
+      ].join('\n')
+    }
+  }
+
+  switch (action) {
+    case 'list':
+      return executeAgents(agents)
+    case 'create':
+      return { content: 'Use the Agent Hub or Create Agent view to add a new agent. Guided slash create flow is being added.' }
+    case 'edit':
+      return { content: 'Agent editing is available from the Agent detail surface. Guided slash edit flow is being added.' }
+    case 'delete':
+      return { content: 'Agent deletion remains protected behind the Agent detail confirmation flow. Guided slash confirmation is pending.' }
+    case 'assign-role':
+      return { content: 'Opening the Nodes role and token manager for device/operator role actions.', action: 'open-nodes' }
+    default:
+      return { content: `Unknown agent action: \`${action}\`` }
+  }
+}
+
 function executeAgents(agents: Agent[]): SlashCommandResult {
   if (agents.length === 0) {
     return { content: 'No agents configured.' }
@@ -255,6 +324,56 @@ function executeAgents(agents: Agent[]): SlashCommandResult {
   return { content: lines.join('\n') }
 }
 
+function executeCronMenu(args: string): SlashCommandResult {
+  const action = args.trim().toLowerCase()
+  if (!action) {
+    return {
+      content: [
+        '**Cron Menu**',
+        '- `/cron list` — View cron jobs [dashboard integration planned]',
+        '- `/cron create` — Open cron creation flow [UI view exists]',
+        '- `/cron pause` — Pause a job [guided flow pending]',
+        '- `/cron resume` — Resume a job [guided flow pending]',
+        '- `/cron delete` — Delete a job [guided confirm flow pending]',
+      ].join('\n')
+    }
+  }
+  return { content: `Cron action \`${action}\` is reserved for the Cron Monitor flow. Interactive execution is being added.` }
+}
+
+function executeConfigMenu(args: string): SlashCommandResult {
+  const action = args.trim().toLowerCase()
+  if (!action) {
+    return {
+      content: [
+        '**Config Menu**',
+        '- `/config view` — Review current configuration [manager surface planned]',
+        '- `/config edit` — Safe edit flow [planned]',
+        '- `/config backup` — Export config backup [planned]',
+        '- `/config restore` — Restore a config backup [planned]',
+        '- `/config smart-merge` — Merge incoming config safely [planned]',
+      ].join('\n')
+    }
+  }
+  return { content: `Config action \`${action}\` is not yet wired to a safe local flow. No changes applied.` }
+}
+
+function executeCanvasMenu(args: string): SlashCommandResult {
+  const action = args.trim().toLowerCase()
+  if (!action) {
+    return {
+      content: [
+        '**Canvas Menu**',
+        '- `/canvas new` — Start a new canvas workflow',
+        '- `/canvas open` — Open current canvas panel',
+        '- `/canvas save` — Save current canvas state [pending persistence review]',
+        '- `/canvas export` — Export canvas output [pending UI action]',
+      ].join('\n')
+    }
+  }
+  return { content: `Canvas action \`${action}\` is queued for the Canvas control surface. Interactive execution is being added.` }
+}
+
 async function executeKill(client: OpenClawClient, sessionKey: string, args: string): Promise<SlashCommandResult> {
   const target = args.trim()
   if (!target) {
@@ -262,12 +381,10 @@ async function executeKill(client: OpenClawClient, sessionKey: string, args: str
   }
 
   try {
-    // For "all", abort the current session's run
     if (target.toLowerCase() === 'all') {
       await client.call('chat.abort', { sessionKey })
       return { content: 'Aborted all active runs.' }
     }
-    // Try to abort a specific session
     await client.call('chat.abort', { sessionKey: target })
     return { content: `Aborted session \`${target}\`.` }
   } catch (err) {

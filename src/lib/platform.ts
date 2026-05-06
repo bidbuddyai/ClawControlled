@@ -341,7 +341,7 @@ export function setupBackButton(handler: () => boolean): () => void {
 }
 
 // Get config (replaces electronAPI.getConfig)
-export async function getConfig(): Promise<{ defaultUrl?: string; theme?: string }> {
+export async function getConfig(): Promise<{ defaultUrl?: string; theme?: string; authMode?: 'token' | 'password' }> {
   const platform = getPlatform()
 
   if (platform === 'electron' && (window as any).electronAPI?.getConfig) {

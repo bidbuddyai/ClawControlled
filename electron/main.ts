@@ -174,7 +174,7 @@ app.on('certificate-error', (event, _webContents, url, _error, _certificate, cal
 app.whenReady().then(() => {
   // Set app identity for Windows notifications (otherwise shows "electron.app.Electron")
   if (process.platform === 'win32') {
-    app.setAppUserModelId('ClawControl')
+    app.setAppUserModelId('ClawControlled')
   }
 
   // Set custom dock icon for macOS
@@ -238,8 +238,9 @@ ipcMain.handle('openclaw:connect', async (_event, url: string) => {
 
 ipcMain.handle('openclaw:getConfig', async () => {
   return {
-    defaultUrl: '',
-    theme: 'dark'
+    defaultUrl: process.env.OPENCLAW_GATEWAY_URL || 'ws://127.0.0.1:18799',
+    theme: 'light',
+    authMode: (process.env.OPENCLAW_AUTH_MODE === 'token' ? 'token' : 'password')
   }
 })
 

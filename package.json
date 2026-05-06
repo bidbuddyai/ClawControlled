@@ -1,11 +1,11 @@
 {
-  "name": "clawcontrol",
+  "name": "clawcontrolled",
   "version": "1.7.0",
-  "description": "Desktop and mobile client for OpenClaw AI assistant",
+  "description": "Production desktop and mobile operations client for OpenClaw",
   "main": "dist-electron/main.js",
   "author": {
-    "name": "ClawControl Team",
-    "email": "team@clawcontrol.app"
+    "name": "ClawControlled Team",
+    "email": "team@clawcontrolled.app"
   },
   "license": "MIT",
   "scripts": {
@@ -20,8 +20,8 @@
     "test:run": "npx vitest run",
     "test:coverage": "npx vitest run --coverage",
     "test:connection": "node scripts/test-connection.js",
-    "lint": "eslint .",
-    "typecheck": "npx -p typescript tsc --noEmit",
+    "lint": "npx eslint .",
+    "typecheck": "npx tsc --noEmit",
     "mobile:build": "npx vite build --config vite.config.mobile.ts",
     "mobile:sync": "npx vite build --config vite.config.mobile.ts && npx cap sync && npx @capacitor/assets generate --android --splashBackgroundColor \"#06080a\" --iconBackgroundColor \"#06080a\" && node scripts/fix-android-edge-to-edge.js",
     "mobile:ios": "npx vite build --config vite.config.mobile.ts && npx cap sync ios && npx @capacitor/assets generate --ios --splashBackgroundColor \"#06080a\" --iconBackgroundColor \"#06080a\" && node scripts/fix-ios-splash.js && npx cap open ios",
@@ -95,8 +95,8 @@
     "ws": "^8.19.0"
   },
   "build": {
-    "appId": "com.claw.control",
-    "productName": "ClawControl",
+    "appId": "com.claw.controlled",
+    "productName": "ClawControlled",
     "directories": {
       "output": "release"
     },

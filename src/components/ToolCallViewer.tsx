@@ -20,10 +20,10 @@ function getStoredTheme(): 'dark' | 'light' {
     const raw = localStorage.getItem('clawcontrol-storage')
     if (raw) {
       const parsed = JSON.parse(raw)
-      if (parsed?.state?.theme === 'light') return 'light'
+      if (parsed?.state?.theme === 'dark') return 'dark'
     }
   } catch { /* ignore */ }
-  return 'dark'
+  return 'light'
 }
 
 export function ToolCallViewer({ toolCallId }: { toolCallId: string }) {

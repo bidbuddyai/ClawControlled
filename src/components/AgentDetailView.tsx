@@ -21,6 +21,10 @@ export function AgentDetailView() {
   const [savingName, setSavingName] = useState(false)
   const nameInputRef = useRef<HTMLInputElement>(null)
 
+  useEffect(() => {
+    if (editingName) nameInputRef.current?.focus()
+  }, [editingName])
+
   if (!selectedAgentDetail) return null
 
   const { agent, workspace, files, defaultModel: rawDefaultModel, modelOptions = [] } = selectedAgentDetail
@@ -111,10 +115,6 @@ export function AgentDetailView() {
     if (e.key === 'Enter') handleSaveName()
     if (e.key === 'Escape') setEditingName(false)
   }
-
-  useEffect(() => {
-    if (editingName) nameInputRef.current?.focus()
-  }, [editingName])
 
   const getAvatarDisplayValue = () => {
     if (!agent.avatar) return null

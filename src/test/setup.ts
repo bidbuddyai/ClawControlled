@@ -5,7 +5,7 @@ import { vi } from 'vitest'
 Object.defineProperty(window, 'electronAPI', {
   value: {
     connect: vi.fn().mockResolvedValue({ success: true, url: 'ws://localhost:18789' }),
-    getConfig: vi.fn().mockResolvedValue({ defaultUrl: 'ws://localhost:18789', theme: 'dark' }),
+    getConfig: vi.fn().mockResolvedValue({ defaultUrl: 'ws://localhost:18789', theme: 'light', authMode: 'password' }),
     saveToken: vi.fn().mockResolvedValue({ saved: true }),
     getToken: vi.fn().mockResolvedValue(''),
     isEncryptionAvailable: vi.fn().mockResolvedValue(true),

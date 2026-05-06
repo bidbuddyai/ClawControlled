@@ -3,6 +3,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { useStore } from '../store'
 import { Skill, CronJob, Hook } from '../lib/openclaw'
 import type { ClawHubSkill, ClawHubSort } from '../lib/clawhub'
+import { OPERATOR_SCOPES } from '../lib/openclaw/permissions'
 
 /** Check if a ClawHub slug matches any installed skill */
 function isSlugInstalled(slug: string, installedSkills: Skill[]): boolean {
@@ -46,7 +47,8 @@ export function RightPanel() {
     searchClawHubSkills,
     selectClawHubSkill,
     selectedClawHubSkill,
-    agents
+    agents,
+    canCreateCron
   } = useStore(useShallow(state => ({
     rightPanelOpen: state.rightPanelOpen,
     setRightPanelOpen: state.setRightPanelOpen,
@@ -75,6 +77,7 @@ export function RightPanel() {
     selectClawHubSkill: state.selectClawHubSkill,
     selectedClawHubSkill: state.selectedClawHubSkill,
     agents: state.agents,
+    canCreateCron: state.canUse('cron.add', OPERATOR_SCOPES.ADMIN)
   })))
 
   const resizing = useRef(false)
@@ -317,17 +320,27 @@ export function RightPanel() {
         </>
       ) : (
         <div className="panel-content">
-          <div className="cron-header-actions" style={{ marginBottom: '16px', display: 'flex', justifyContent: 'flex-end', padding: '0 16px' }}>
+          <div className="cron-header-actions" style={{ marginBottom: '16px', display: 'flex', flexDirection: 'column', gap: '8px', justifyContent: 'flex-end', padding: '0 16px' }}>
             <button
               className="settings-button primary"
-              onClick={() => useStore.getState().openCreateCron()}
-              style={{ width: '100%', padding: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+              onClick={() => {
+                if (!canCreateCron) return
+                useStore.getState().openCreateCron()
+              }}
+              disabled={!canCreateCron}
+              title={canCreateCron ? 'Create a new cron job' : 'Requires operator.admin and cron.add support from the connected Gateway'}
+              style={{ width: '100%', padding: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', opacity: canCreateCron ? 1 : 0.55, cursor: canCreateCron ? 'pointer' : 'not-allowed' }}
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
                 <path d="M12 5v14M5 12h14" />
               </svg>
-              Create New Cron Job
+              {canCreateCron ? 'Create New Cron Job' : 'Cron creation requires admin scope'}
             </button>
+            {!canCreateCron && (
+              <p style={{ margin: 0, fontSize: '11px', lineHeight: 1.4, color: 'var(--text-secondary)' }}>
+                Cron creation requires the Gateway to advertise <code>cron.add</code> and this device to have <code>operator.admin</code>. Existing cron jobs remain viewable with read access.
+              </p>
+            )}
           </div>
           <div style={{ padding: '0 16px', marginBottom: '8px' }}>
             <select
